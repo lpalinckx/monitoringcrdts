@@ -34,8 +34,8 @@ function init() {
         const linkIterator = fromNode.findLinksTo(to);
 
         // Removes the link if there already exists one
-        if(linkIterator.count > 1) myDiagram.remove(sub);
-        
+        if (linkIterator.count > 1) myDiagram.remove(sub);
+
 
         // Socket connection, should be removed later by propagating multiple updates at once
         socket.emit('addLink');
@@ -98,7 +98,7 @@ function init() {
             $(go.Shape, { alignment: go.Spot.Bottom, cursor: "s-resize", desiredSize: new go.Size(6, 6), fill: "lightblue", stroke: "deepskyblue" }),
             $(go.Shape, { alignment: go.Spot.BottomRight, cursor: "sw-resize", desiredSize: new go.Size(6, 6), fill: "lightblue", stroke: "deepskyblue" })
         );
-        
+
     myDiagram.nodeTemplate =
         $(go.Node, "Spot",
             { locationSpot: go.Spot.Center },
@@ -187,7 +187,7 @@ function init() {
             )
         );
 
-    
+
 
     // initialize the Palette that is on the left side of the page
     myPalette =
@@ -278,7 +278,7 @@ function enable() {
     myPalette.startTransaction();
     myPalette.opacity = 1.0;
     myPalette.isEnabled = true;
-    myPalette.commitTransaction();    
+    myPalette.commitTransaction();
 }
 
 function popupDisplay(val) {
@@ -291,11 +291,11 @@ function mySave() {
     let header = document.getElementById("popup-title");
     let text = document.getElementById("popup-text");
     let button = document.getElementById("LoadButton");
+    save();
     let inp = document.getElementById("mySavedModel").value;
     header.innerText = "Save configuration";
     text.innerText = "Save the current configuration as a JSON object."
     button.style.visibility = 'hidden';
-    save();
     popupDisplay('block');
     socket.emit("saved", JSON.parse(inp));
 }

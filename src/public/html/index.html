@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+    <head>
+      <title>Monitoring tool</title>
+      <link rel="stylesheet" type="text/css" href="css/style.css">
+      <script src="https://unpkg.com/gojs/release/go-debug.js"></script>
+      <script src="/socket.io/socket.io.js"></script>
+      <script type="text/javascript" src="http://localhost:3000/js/gojs.js" defer></script>
+    </head>
+    <body onload="init()">
+        <div id="sample">
+            <div id="diagram">
+              <div id="myPaletteDiv"></div>
+              <div id="myDiagramDiv"></div>
+            </div>
+
+            <div>
+              <div class="jsonDiv">
+                Pressing save propagates the changes
+                <br>
+                <button class="button" onclick="mySave()" id="SaveButton">Save</button>
+                <button class="button" onclick="myLoad()">Load</button>
+              </div>
+              
+              <div id="popup">
+                <div class="popup-content">
+                  <h2 id="popup-title">Save configuration</h2>
+                  <div id="popup-text">Save the current configuration as a JSON object.</div>
+                  <textarea id="mySavedModel" rows="30">{ "class": "go.GraphLinksModel",
+                    "linkFromPortIdProperty": "fromPort",
+                    "linkToPortIdProperty": "toPort",
+                    "nodeDataArray": [],
+                    "linkDataArray": []
+                  }
+                  </textarea>
+                  <button class="exitbutton" onclick="hidePopup()">Close</button>
+                  <button class="button" onclick="load()" id="LoadButton" hidden>Load diagram</button>
+                </div>
+              </div>
+            </div>
+          </div>          
+    </body>
+</html>

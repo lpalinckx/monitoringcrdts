@@ -10,19 +10,16 @@ const { Docker } = require('node-docker-api');
 const connectedClientsKeys = [];
 
 // Server setup
-const docker = new Docker({socketPath: '/var/run/docker.sock'});
+const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
 // Main server 
-docker.network.create({
+const network = (docker.network.create({
     name: 'server-hub',
-    Image: 'nginx:latest',
-    attachable: true, 
+    Driver: 'bridge',
 })
-.catch(error => console.log(error));
+    .catch(error => console.log(error)))
 
 
-// Webpage setup
-const PORT = 3000;
 
 function handleSave(diagram) {
     const nodes = diagram.nodeDataArray;
@@ -30,28 +27,38 @@ function handleSave(diagram) {
     const nodeKeys = nodes.map((node) => {
         return node.key;
     });
-    
+
     // debug
     console.log('Keys of the nodes in the current configuration');
     console.table(nodeKeys);
 
 
     // Add to the server 
-    nodeKeys.forEach(key => {
-        if(!connectedClientsKeys.includes(key)){
+    nodeKeys.forEach(async (key) => {
+        if (!connectedClientsKeys.includes(key)) {
+            connectedClientsKeys.push(key);
             console.log(`New node with key ${key} added to the diagram`);
             let containerName = 'node' + key;
+
             // Create new Docker container
-            docker.container.create({
+            const container = await (docker.container.create({
                 Image: 'nginx:latest',
-                name: containerName,             
-                Cmd: ['echo', 'hello']
+                name: containerName,
             })
-            .then(container => container.attach('server-hub'))            
+                .catch(error => console.log(error)))
+            container.start();
+            console.log(`Adding container with id ${container.id}`)
+
+            // Add to network 
+            network.then(net => net.connect({Container: container.id}))
             .catch(error => console.log(error));
-        } else console.log(`Node with key ${key} already added`);
+
+        }
     });
 }
+
+// Webpage setup
+const PORT = 3000;
 
 app.use(express.static('src/public'));
 
@@ -60,7 +67,7 @@ app.get('/', (req, res) => {
 })
 
 io.on('connection', (socket) => {
-    socket.on("saved", (diagramJson) => {handleSave(diagramJson)})
+    socket.on("saved", (diagramJson) => { handleSave(diagramJson) })
 })
 
 http.listen(PORT, () => {

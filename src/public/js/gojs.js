@@ -16,8 +16,6 @@ function init() {
                 "draggingTool.isGridSnapEnabled": true,
                 "linkingTool.portGravity": 20,
                 "relinkingTool.portGravity": 20,
-                "relinkingTool.fromHandleArchetype":
-                    $(go.Shape, "Diamond", { segmentIndex: 0, cursor: "pointer", desiredSize: new go.Size(8, 8), fill: "tomato", stroke: "darkred" }),
                 "relinkingTool.toHandleArchetype":
                     $(go.Shape, "Diamond", { segmentIndex: -1, cursor: "pointer", desiredSize: new go.Size(8, 8), fill: "darkred", stroke: "tomato" }),
                 "linkReshapingTool.handleArchetype":
@@ -31,18 +29,10 @@ function init() {
         const from = sub.fromNode;
         const to = sub.toNode;
         const fromNode = myDiagram.findNodeForKey(from.key);
-        const linkIterator = fromNode.findLinksTo(to);
+        const linkIterator = fromNode.findLinksBetween(to);
 
         // Removes the link if there already exists one
         if (linkIterator.count > 1) myDiagram.remove(sub);
-
-
-        // Socket connection, should be removed later by propagating multiple updates at once
-        socket.emit('addLink');
-    })
-
-    myDiagram.addDiagramListener("ExternalObjectsDropped", (e) => {
-        socket.emit('addNode');
     })
 
     // when the document is modified, add a "*" to the title and enable the "Save" button
@@ -168,8 +158,6 @@ function init() {
             new go.Binding("points").makeTwoWay(),
             $(go.Shape,  // the link path shape
                 { isPanelMain: true, strokeWidth: 2 }),
-            $(go.Shape,  // the arrowhead
-                { toArrow: "Standard", stroke: null }),
             $(go.Panel, "Auto",
                 new go.Binding("visible", "isSelected").ofObject(),
                 $(go.Shape, "RoundedRectangle",  // the link shape
@@ -195,35 +183,9 @@ function init() {
             {
                 maxSelectionCount: 1,
                 nodeTemplateMap: myDiagram.nodeTemplateMap,  // share the templates used by myDiagram
-                linkTemplate: // simplify the link template, just in this Palette
-                    $(go.Link,
-                        { // because the GridLayout.alignment is Location and the nodes have locationSpot == Spot.Center,
-                            // to line up the Link in the same manner we have to pretend the Link has the same location spot
-                            locationSpot: go.Spot.Center,
-                            selectionAdornmentTemplate:
-                                $(go.Adornment, "Link",
-                                    { locationSpot: go.Spot.Center },
-                                    $(go.Shape,
-                                        { isPanelMain: true, fill: null, stroke: "deepskyblue", strokeWidth: 0 }),
-                                    $(go.Shape,  // the arrowhead
-                                        { toArrow: "Standard", stroke: null })
-                                )
-                        },
-                        {
-                            routing: go.Link.AvoidsNodes,
-                            curve: go.Link.JumpOver,
-                            corner: 5,
-                            toShortLength: 4
-                        },
-                        new go.Binding("points"),
-                        $(go.Shape,  // the link path shape
-                            { isPanelMain: true, strokeWidth: 2 }),
-                        $(go.Shape,  // the arrowhead
-                            { toArrow: "Standard", stroke: null })
-                    ),
                 model: new go.GraphLinksModel([  // specify the contents of the Palette
-                    { text: "Node", figure: "Circle", fill: "#00AD5F" },
-                    { text: "Comment", figure: "RoundedRectangle", fill: "lightyellow" }
+                    { text: "Node", figure: "Circle", fill: "#00AD5F"},
+                    { text: "Network", figure: "Border", fill:"#f2805a"},
                 ])
             });
     load();  // load an initial diagram from some JSON text

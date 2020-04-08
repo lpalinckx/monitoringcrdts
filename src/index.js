@@ -7,54 +7,117 @@ const { Docker } = require('node-docker-api');
 
 
 // Keep track of what nodes in the network already connected to the server
-const connectedClientsKeys = [];
+let lastKey = 0;
+const nodeKeys = [];
+const networkKeys = [];
+
+const containers = {};
+const networks = {};
 
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-// Main server 
-const network = (docker.network.create({
-    name: 'server-hub',
-    Driver: 'bridge',
-})
-    .catch(error => console.log(error)))
+// Instantiates the Docker containers for each new node
+async function createNode(key) {
+    nodeKeys.push(key);
+    let containerName = 'node' + key;
 
+    // Create new Docker container
+    const container = await (docker.container.create({
+        Image: 'nginx:latest',
+        name: containerName,
+    })
+        .catch(error => console.log(error)))
+    container.start();
 
+    console.log('New container created: ' + containerName);
 
-function handleSave(diagram) {
-    const nodes = diagram.nodeDataArray;
+    // Return container
+    return container
+}
+
+/**
+ * 
+ * @param {Key of the new network} key 
+ * @param {All the containers linked to this network} linkedContainers 
+ */
+async function createNetwork(key, linkedContainers) {
+    lastKey = key;
+    networkKeys.push(key);
+    let containerName = 'network' + key;
+
+    // Create new network
+    const net = await (docker.network.create({
+        name: containerName,
+        Driver: "bridge"
+    }));
+
+    console.log(`New network created: ${containerName}`);
+
+    // Link the containers to the network
+    for (let container of linkedContainers) {
+        net.connect({ Container: container.id })
+            .catch(error => console.log(error))
+        console.log(`Connected a container to network ${containerName}`);
+    }
+
+    // Return container
+    return net;
+}
+
+function fetchNode(key) {
+    let nameToFind = 'node' + key;
+    return containers[nameToFind];
+}
+
+async function createNodes(nodeProps) {
+    for (let props of nodeProps) {
+        let key = props.key;
+        let containerName = 'node' + key;
+        const container = await createNode(key);
+        containers[containerName] = container
+    }
+}
+
+async function createNetworks(fromTo) {
+    for (let obj of fromTo) {
+        let networkName = 'network' + obj.key
+        const network = await createNetwork(obj.key, [fetchNode(obj.from), fetchNode(obj.to)]);
+        networks[networkName] = network;
+    }
+}
+
+async function handleSave(diagram) {
+    // Gets the nodes out of the diagram and immediatly filters out the network nodes
+    const nodeArray = (diagram.nodeDataArray).filter(node => (!nodeKeys.includes(node.key) && !(node.text === "Network")));
+    const links = ((diagram.linkDataArray).filter(link => (!networkKeys.includes(link.key))));
+    
+    const networkNodes = (diagram.nodeDataArray).filter(node => (node.text === "Network"))
     // Keys of the nodes in the diagram
-    const nodeKeys = nodes.map((node) => {
-        return node.key;
-    });
-
-    // debug
-    console.log('Keys of the nodes in the current configuration');
-    console.table(nodeKeys);
-
-
-    // Add to the server 
-    nodeKeys.forEach(async (key) => {
-        if (!connectedClientsKeys.includes(key)) {
-            connectedClientsKeys.push(key);
-            console.log(`New node with key ${key} added to the diagram`);
-            let containerName = 'node' + key;
-
-            // Create new Docker container
-            const container = await (docker.container.create({
-                Image: 'nginx:latest',
-                name: containerName,
-            })
-                .catch(error => console.log(error)))
-            container.start();
-            console.log(`Adding container with id ${container.id}`)
-
-            // Add to network 
-            network.then(net => net.connect({Container: container.id}))
-            .catch(error => console.log(error));
-
+    const nodeProps = nodeArray.map((node) => {
+        return {
+            "key": node.key,
+            "text": node.text
         }
     });
+
+    // From and To nodes for each link
+    const fromTo = links.map(link => {
+        return {
+            "from": link.from,
+            "to": link.to,
+            "key": link.key
+        }
+    });
+
+    // TODO: add network nodes
+
+    // Create nodes
+    console.log('creating nodes')
+    await createNodes(nodeProps);
+    console.log('creating networks')
+    // Create links
+    await createNetworks(fromTo);
 }
 
 // Webpage setup
@@ -67,8 +130,9 @@ app.get('/', (req, res) => {
 })
 
 io.on('connection', (socket) => {
-    socket.on("saved", (diagramJson) => { handleSave(diagramJson) })
+    socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
 })
+
 
 http.listen(PORT, () => {
     console.log("Listening on port " + PORT);

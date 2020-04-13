@@ -1,32 +1,39 @@
 <!DOCTYPE html>
 <html>
-    <head>
-      <title>Monitoring tool</title>
-      <link rel="stylesheet" type="text/css" href="css/style.css">
-      <script src="https://unpkg.com/gojs/release/go-debug.js"></script>
-      <script src="/socket.io/socket.io.js"></script>
-      <script type="text/javascript" src="http://localhost:3000/js/gojs.js" defer></script>
-    </head>
-    <body onload="init()">
-        <div id="sample">
-            <div id="diagram">
-              <div id="myPaletteDiv"></div>
-              <div id="myDiagramDiv"></div>
-            </div>
 
-            <div>
-              <div class="jsonDiv">
-                Pressing save propagates the changes
-                <br>
-                <button class="button" onclick="mySave()" id="SaveButton">Save</button>
-                <button class="button" onclick="myLoad()">Load</button>
-              </div>
-              
-              <div id="popup">
-                <div class="popup-content">
-                  <h2 id="popup-title">Save configuration</h2>
-                  <div id="popup-text">Save the current configuration as a JSON object.</div>
-                  <textarea id="mySavedModel" rows="30">{ "class": "go.GraphLinksModel",
+<head>
+  <title>Monitoring tool</title>
+  <link rel="stylesheet" type="text/css" href="css/style.css">
+  <script src="https://unpkg.com/gojs/release/go-debug.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="text/javascript" src="js/gojs.js" defer></script>
+</head>
+
+<body onload="init()">
+  <div id="sample">
+    <div id="diagram">
+      <div id="myPaletteDiv"></div>
+      <div id="myDiagramDiv"></div>
+    </div>
+
+
+    <div id="snackbar">
+      KEKW KEKW KEKW YOU ARE STOOOPID AND MADE A MISTAKE LMFAO
+    </div>
+
+    <div>
+      <div class="jsonDiv">
+        Pressing save propagates the changes
+        <br>
+        <button class="button" onclick="mySave()" id="SaveButton">Save</button>
+        <button class="button" onclick="myLoad()">Load</button>
+      </div>
+
+      <div id="popup">
+        <div class="popup-content">
+          <h2 id="popup-title">Save configuration</h2>
+          <div id="popup-text">Save the current configuration as a JSON object.</div>
+          <textarea id="mySavedModel" rows="30">{ "class": "go.GraphLinksModel",
                     "linkKeyProperty": "key",
                     "linkFromPortIdProperty": "fromPort",
                     "linkToPortIdProperty": "toPort",
@@ -34,11 +41,28 @@
                     "linkDataArray": []
                   }
                   </textarea>
-                  <button class="exitbutton" onclick="hidePopup()">Close</button>
-                  <button class="button" onclick="load()" id="LoadButton" hidden>Load diagram</button>
-                </div>
-              </div>
-            </div>
-          </div>          
-    </body>
+          <button class="exitbutton" onclick="hidePopup()">Close</button>
+          <button class="button" onclick="load()" id="LoadButton" hidden>Load diagram</button>
+        </div>
+      </div>
+
+      <div class="props">
+        <div class="application">
+          <h2>Application settings</h2>
+          testestsetestset
+        </div>
+
+        <div class="node">
+          <h2>Node settings</h2>
+          <div class="buttons">
+            <button class="enable" onclick="toggleSnackbar()">Enable</button>
+            <button class="disable">Disable</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+
 </html>

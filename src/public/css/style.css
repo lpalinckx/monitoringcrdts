@@ -92,3 +92,100 @@ textarea {
     width: 80%;
   }
   
+.props {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-around;
+    padding: 10px;
+}
+
+.application, .node{
+    width: 100%;
+    border: 1px solid dimgray;
+    border-radius: 20px;
+    margin: 1rem;
+    padding: 10px;
+}
+
+.application > h2, .node > h2 {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+
+.enable {
+    background-color: #4CAF50;
+    border: solid 1px darkgreen;
+    border-radius: 4px;
+    color: white;
+    padding: 15px 64px;
+    margin: 5px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.disable {
+    background-color:rgb(226, 90, 0);
+    border: solid 1px darkred;
+    border-radius: 4px;
+    color: white;
+    padding: 15px 64px;
+    margin: 5px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.buttons { 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#snackbar {
+    visibility: hidden;
+    min-width: 300px;
+    width: fit-content;
+    background-color: red;
+    color: white;
+    text-align: center;
+    border-radius: 5px;
+    padding: 15px;
+    position: fixed;
+    z-index: 1;
+    left: 50%;
+    bottom: 30px;
+    font-size: 17px;
+}
+
+#snackbar.show {
+    visibility: visible;
+    -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+    animation: fadein 0.5s, fadeout 0.5s 2.5s;
+}
+
+@-webkit-keyframes fadein {
+    from {bottom: 0; opacity: 0;}
+    to {bottom: 30px; opacity: 1;}
+}
+
+@keyframes fadein {
+    from { bottom: 0; opacity: 0;}
+    to { bottom: 30px; opacity: 1;}
+}
+
+@-webkit-keyframes fadeout {
+    from { bottom: 30px; opacity: 1;}
+    to { bottom: 0; opacity: 0;}
+}
+
+@keyframes fadeout {
+    from {bottom: 30px; opacity: 1;}
+    to { bottom: 0; opacity: 0;}
+}
+

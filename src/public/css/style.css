@@ -109,7 +109,7 @@ textarea {
 
 .application > h2, .node > h2 {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
 
 
@@ -147,9 +147,13 @@ textarea {
     justify-content: center;
 }
 
+.subtext { 
+    text-align: center;
+    text-decoration: dashed;
+}
+
 #snackbar {
     visibility: hidden;
-    min-width: 300px;
     width: fit-content;
     background-color: red;
     color: white;
@@ -159,6 +163,7 @@ textarea {
     position: fixed;
     z-index: 1;
     left: 50%;
+    transform: translateX(-50%);
     bottom: 30px;
     font-size: 17px;
 }

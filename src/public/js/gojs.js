@@ -23,7 +23,7 @@ function init() {
                 "undoManager.isEnabled": true
             });
 
-
+    // Checks link constraint
     myDiagram.addDiagramListener("LinkDrawn", (e) => {
         const sub = e.subject;
         const from = sub.fromNode;
@@ -95,6 +95,7 @@ function init() {
             new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
             { selectable: true, selectionAdornmentTemplate: nodeSelectionAdornmentTemplate },
             { resizable: false, resizeObjectName: "PANEL", resizeAdornmentTemplate: nodeResizeAdornmentTemplate },
+            { click: nodeClicked },
             new go.Binding("angle").makeTwoWay(),
             // the main object is a Panel that surrounds a TextBlock with a Shape
             $(go.Panel, "Auto",
@@ -184,13 +185,17 @@ function init() {
                 maxSelectionCount: 1,
                 nodeTemplateMap: myDiagram.nodeTemplateMap,  // share the templates used by myDiagram
                 model: new go.GraphLinksModel([  // specify the contents of the Palette
-                    { text: "Node", figure: "Circle", fill: "#00AD5F"},
-                    { text: "Network", figure: "Border", fill:"#f2805a"},
+                    { text: "Node", figure: "Circle", fill: "#00AD5F" },
+                    { text: "Network", figure: "Border", fill: "#f2805a" },
                 ])
             });
     load();  // load an initial diagram from some JSON text
 }
 
+
+//
+// Functions
+//
 
 // Show the diagram's model in JSON format that the user may edit
 function save() {
@@ -287,6 +292,19 @@ window.onclick = (e) => {
 function toggleSnackbar() {
     let snackbar = document.getElementById("snackbar");
     snackbar.className = "show";
-    setTimeout(()=>{ snackbar.className = snackbar.className.replace("show", "")}, 3000);
+    setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
 }
 
+function myClear() {
+    myDiagram.clear();
+}
+
+function nodeClicked(e, obj) {
+    let node = obj.part;
+    let name1 = document.getElementById("nodeName1");
+    let name2 = document.getElementById("nodeName2");
+    let name = 'node' + node.key;
+    name1.innerText = name;
+    name2.innerText = name;
+    socket.emit("nodeClicked", node)
+}

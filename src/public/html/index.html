@@ -18,7 +18,7 @@
 
 
     <div id="snackbar">
-      KEKW KEKW KEKW YOU ARE STOOOPID AND MADE A MISTAKE LMFAO
+      Error
     </div>
 
     <div>
@@ -27,6 +27,7 @@
         <br>
         <button class="button" onclick="mySave()" id="SaveButton">Save</button>
         <button class="button" onclick="myLoad()">Load</button>
+        <button class="exitbutton" onclick="myClear()">Clear</button>
       </div>
 
       <div id="popup">
@@ -49,11 +50,21 @@
       <div class="props">
         <div class="application">
           <h2>Application settings</h2>
+          <div class="subtext">
+            Selected node: 
+            <span id="nodeName1">None</span>
+          </div>
+          <hr>
           testestsetestset
         </div>
 
         <div class="node">
           <h2>Node settings</h2>
+          <div class="subtext">
+            Selected node: 
+            <span id="nodeName2">None</span>
+          </div>
+          <hr>
           <div class="buttons">
             <button class="enable" onclick="toggleSnackbar()">Enable</button>
             <button class="disable">Disable</button>

@@ -135,7 +135,7 @@ async function handleSave(diagram) {
     const nodeArray = (diagram.nodeDataArray).filter(node => (!nodeKeys.includes(node.key) && !(node.text === "Network")));
     const links = ((diagram.linkDataArray).filter(link => (!networkKeys.includes(link.key))));
     const networkNodes = (diagram.nodeDataArray).filter(node => (node.text === "Network") && !(nodeKeys.includes(node.key)))
-    
+
     // Keys of the nodes in the diagram
     const nodeProps = nodeArray.map((node) => {
         return {
@@ -179,6 +179,7 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
     socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
+    socket.on("nodeClicked", (node) => console.log('received click'))
 })
 
 

@@ -6,14 +6,12 @@ const net = require('net');
 const { Docker } = require('node-docker-api');
 
 
-// Keep track of what nodes in the network already connected to the server
-let lastKey = 0;
+// Keep track of the keys of all the nodes and links in the diagram
 const nodeKeys = [];
+const netNodeKeys = [];
 const networkKeys = [];
-
-const containers = {};
-const networks = {};
-const netNodes = {};
+// Keys of the links that do not create a network (= are connected to a network node)
+const nonNetworkLinks = [];
 
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -44,7 +42,7 @@ async function createNode(key) {
  */
 async function createNetwork(key, linkedContainers, isNode) {
     lastKey = key;
-    (isNode) ? nodeKeys.push(key) : networkKeys.push(key);
+    (isNode) ? netNodeKeys.push(key) : networkKeys.push(key);
     let name = (isNode) ? 'networkNode' : 'network';
     let containerName = name + key;
     // Create new network
@@ -66,35 +64,32 @@ async function createNetwork(key, linkedContainers, isNode) {
     return net;
 }
 
-function fetchNode(key) {
+function fetchNode(key) {    
     let nameToFind = 'node' + key;
-    return containers[nameToFind];
+    return docker.container.get(nameToFind)
 }
 
 function fetchNetwork(key, isNode) {
-    let name = (isNode ? 'netNode' : 'network');
-    let obj = (isNode ? netNodes : networks);
+    let name = (isNode ? 'networkNode' : 'network');
     let nameToFind = name + key;
-    return obj[nameToFind];
+    return docker.network.get(nameToFind)
 }
 
 async function createNodes(nodeProps) {
     for (let props of nodeProps) {
-        let key = props.key;
-        let containerName = 'node' + key;
-        const container = await createNode(key);
-        containers[containerName] = container
+        let key = props.key;    
+        await createNode(key);
     }
 }
 
 async function createNetworks(fromTo) {
-    for (let obj of fromTo) {
-        let networkName = 'network' + obj.key
-        let from = obj.from;
-        let to = obj.to;
-        // Check if either from or to is a network node,
-        // if so it doesn't need to create a new network but rather link it to the network node
-        if (isNetworkNode(from) || isNetworkNode(to)) {
+    for (let link of fromTo) {
+        let from = link.from;
+        let to = link.to;
+        let key = link.key;
+        // Check if the link is connected to a network node,
+        // if so it doesn't need to create a new network but rather link the node to the network node
+        if (isLinkToNetNode(from, to)) {
             // Link is connected to a network node 
             let net = (isNetworkNode(from) ? fetchNetwork(from, true) : fetchNetwork(to, true))
             let node = (isNetworkNode(from) ? fetchNode(to) : fetchNode(from))
@@ -102,28 +97,75 @@ async function createNetworks(fromTo) {
             net.connect({ Container: node.id })
                 .catch(error => console.log(error));
 
-            networkKeys.push(obj.key);
+            nonNetworkLinks.push(key);
         } else {
             // Not connected to a network node, so it is a link connected between 2 regular nodes 
-            const network = await createNetwork(obj.key, [fetchNode(from), fetchNode(to)], false);
-            networks[networkName] = network;
+            await createNetwork(key, [fetchNode(from), fetchNode(to)], false);
         }
     }
 }
 
 async function createNetworkNode(nodes) {
     for (netNode of nodes) {
-        const network = await createNetwork(netNode.key, [], true);
-        let name = 'netNode' + netNode.key;
-        netNodes[name] = network;
+        await createNetwork(netNode.key, [], true);
     }
 }
 
 function isNetworkNode(key) {
-    let nameToFind = 'netNode' + key;
-    let res = typeof netNodes[nameToFind] !== 'undefined';
-    return res
+    return (netNodeKeys.includes(key))
 }
+
+function isLinkToNetNode(from, to) {
+    return (isNetworkNode(from) || isNetworkNode(to))
+}
+
+/**
+ * 
+ * @param {Key of the network to remove} key 
+ * @param {Boolean: True = network node, False = regular link} isNode 
+ */
+async function deleteNetwork(key, isNode) {
+    let network = fetchNetwork(key, isNode);
+    let name; 
+    try {
+        let status = await network.status();
+        name = status.data.Name;
+        // Ids of the connected nodes to this network
+        let clientIds = Object.keys(status.data.Containers);
+        for (id of clientIds) {
+            // disconnect all the connected nodes 
+            await network.disconnect({Container: id});
+        }
+        // Remove the network
+        await network.remove()
+        console.log(`Removed ${name}`);
+    } catch (error) {
+        console.log(error)
+    }
+    // Remove key from the array
+    let arr = (isNode ? netNodeKeys : networkKeys)
+    let idx = arr.indexOf(key);
+    if (idx > -1) {
+        arr.splice(idx, 1);
+    }
+}
+
+async function deleteNode(key) {
+    let container = fetchNode(key);
+    let name = 'node' + key;
+    try {
+        await container.stop();
+        await container.delete();
+        console.log(`Removed ${name}`);
+    } catch (error) {
+        console.log(error)
+    }
+    let idx = nodeKeys.indexOf(key);
+    if (idx > -1) {
+        nodeKeys.splice(idx, 1);
+    }
+}
+
 
 /**
  * Handles whenever there is a new save
@@ -131,20 +173,33 @@ function isNetworkNode(key) {
  * @param {Diagram from the front-end} diagram 
  */
 async function handleSave(diagram) {
+    console.log('\n======= NEW SAVE ======= ')
     // Gets the nodes out of the diagram and immediatly filters out the network nodes
-    const nodeArray = (diagram.nodeDataArray).filter(node => (!nodeKeys.includes(node.key) && !(node.text === "Network")));
-    const links = ((diagram.linkDataArray).filter(link => (!networkKeys.includes(link.key))));
-    const networkNodes = (diagram.nodeDataArray).filter(node => (node.text === "Network") && !(nodeKeys.includes(node.key)))
+    const nodes = (diagram.nodeDataArray).filter(node => !(node.text === "Network"));
+    const links = (diagram.linkDataArray)
+    const netNodes = (diagram.nodeDataArray).filter(node => (node.text === "Network"))
+
+    const newNodes = nodes.filter(node => !nodeKeys.includes(node.key));
+    const newLinks = links.filter(link => !networkKeys.includes(link.key) && !nonNetworkLinks.includes(link.key));
+    const newNetNodes = netNodes.filter(node => !netNodeKeys.includes(node.key));
+
+    const missingNodes = nodeKeys.filter(k => !(nodes.map(n => n.key).includes(k)));
+    const missingLinks = networkKeys.filter(k => {
+        let keys = links.map(l => l.key);
+        return (!keys.includes(k))
+    })
+    const missingNonNetworks = nonNetworkLinks.filter(k => !(links.map(l => l.key).includes(k)));
+    const missingNetNodes = netNodeKeys.filter(k => !(netNodes.map(n => n.key).includes(k)));
 
     // Keys of the nodes in the diagram
-    const nodeProps = nodeArray.map((node) => {
+    const nodeProps = newNodes.map((node) => {
         return {
             "key": node.key
         }
     });
 
     // From and To nodes for each link
-    const fromTo = links.map(link => {
+    const fromTo = newLinks.map(link => {
         return {
             "from": link.from,
             "to": link.to,
@@ -152,11 +207,30 @@ async function handleSave(diagram) {
         }
     });
 
-    const nets = networkNodes.map((netNode) => {
+    const nets = newNetNodes.map((netNode) => {
         return {
             "key": netNode.key
         }
     })
+
+    // Delete removed networks
+    for (networkKey of missingLinks) {
+        await deleteNetwork(networkKey, false); 
+    }
+
+    for (netNodeKey of missingNetNodes) {
+        await deleteNetwork(netNodeKey, true)
+    }
+
+    // Delete removed nodes
+    for (nodeKey of missingNodes) {
+        deleteNode(nodeKey);
+    }
+
+    for (nonNetwork of missingNonNetworks) {
+        let idx = nonNetworkLinks.indexOf(nonNetwork);
+        nonNetworkLinks.splice(idx, 1);
+    }
 
     // Create nodes
     await createNodes(nodeProps);
@@ -179,7 +253,7 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
     socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
-    socket.on("nodeClicked", (node) => console.log('received click'))
+    socket.on("nodeClicked", () => console.log('received click'));
 })
 
 

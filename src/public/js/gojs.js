@@ -306,5 +306,5 @@ function nodeClicked(e, obj) {
     let name = 'node' + node.key;
     name1.innerText = name;
     name2.innerText = name;
-    socket.emit("nodeClicked", node)
+    //socket.emit("nodeClicked")
 }

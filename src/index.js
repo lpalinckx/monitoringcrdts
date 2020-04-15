@@ -18,31 +18,39 @@ const nonNetworkLinks = {};
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
 // Instantiates the Docker containers for each new node
+/**
+ * Creates a container for a node 
+ * 
+ * @param {Key of the node} key 
+ */
 async function createNode(key) {
     nodeKeys.push(key);
     let containerName = 'node' + key;
 
     // Create new Docker container
-    const container = await (docker.container.create({
-        Image: 'nginx:latest',
-        name: containerName,
-    })
-        .catch(error => console.log(error)))
-    container.start();
-
-    console.log('New container created: ' + containerName);
-
+    try {
+        const container = await (docker.container.create({
+            Image: 'nginx:latest',
+            name: containerName
+        }))
+        container.start();
+        console.log('New container created: ' + containerName);
+    } catch (error) {
+        console.log(error)
+    }
     // Return container
     return container
 }
 
 /**
- * 
- * @param {Key of the new network} key 
- * @param {All the containers linked to this network} linkedContainers 
+ * Creates a docker network
+ * Connects all the nodes passed in linkedContainers to the new network
+ * @param {Key of the network} key 
+ * @param {All linked containers to this network} linkedContainers 
+ * @param {Boolean: true = network node, false = regular node} isNode 
+ * @returns Created network 
  */
 async function createNetwork(key, linkedContainers, isNode) {
-    lastKey = key;
     (isNode) ? netNodeKeys.push(key) : networkKeys.push(key);
     let name = (isNode) ? 'networkNode' : 'network';
     let containerName = name + key;
@@ -56,26 +64,42 @@ async function createNetwork(key, linkedContainers, isNode) {
 
     // Link the containers to the network
     for (let container of linkedContainers) {
-        net.connect({ Container: container.id })
-            .catch(error => console.log(error))
-        console.log(`Connected a container to network ${containerName}`);
+        try {
+            net.connect({ Container: container.id })
+            console.log(`Connected a container to network ${containerName}`);
+        } catch (error) {
+            console.log(error)
+        }
     }
 
     // Return container
     return net;
 }
 
+/**
+ * Returns the container of the node 
+ * @param {Key of the node} key 
+ */
 function fetchNode(key) {
     let nameToFind = 'node' + key;
     return docker.container.get(nameToFind)
 }
 
+/**
+ * Returns the network container 
+ * @param {key of the network to return} key 
+ * @param {Boolean: true = return a network node, false = return a regular network} isNode 
+ */
 function fetchNetwork(key, isNode) {
     let name = (isNode ? 'networkNode' : 'network');
     let nameToFind = name + key;
     return docker.network.get(nameToFind)
 }
 
+/**
+ * Creates the containers for all the new nodes in the network
+ * @param {Array of objects} nodeProps 
+ */
 async function createNodes(nodeProps) {
     for (let props of nodeProps) {
         let key = props.key;
@@ -83,6 +107,12 @@ async function createNodes(nodeProps) {
     }
 }
 
+/**
+ * Creates links in bulk, the links are passed as objects in an array.
+ * The objects contain the key of the link and the from and to node
+ * Links to network nodes do not create a new network, but simply link the node to the network
+ * @param {Array of objects, these objects have the from's and to's for each link} fromTo 
+ */
 async function createNetworks(fromTo) {
     for (let link of fromTo) {
         let from = link.from;
@@ -92,14 +122,17 @@ async function createNetworks(fromTo) {
         // if so it doesn't need to create a new network but rather link the node to the network node
         if (isLinkToNetNode(from, to)) {
             // Link is connected to a network node 
-            let net = (isNetworkNode(from) ? fetchNetwork(from, true) : fetchNetwork(to, true))
-            let node = (isNetworkNode(from) ? fetchNode(to) : fetchNode(from))
+            try {
+                let net = (isNetworkNode(from) ? fetchNetwork(from, true) : fetchNetwork(to, true))
+                let node = (isNetworkNode(from) ? fetchNode(to) : fetchNode(from))
+                
+                net.connect({ Container: node.id })
 
-            net.connect({ Container: node.id })
-                .catch(error => console.log(error));
-
-            nonNetworkLinksKeys.push(key);
-            nonNetworkLinks[key] = { "from": from, "to": to };
+                nonNetworkLinksKeys.push(key);
+                nonNetworkLinks[key] = { "from": from, "to": to };
+            } catch (error) {
+                console.log(error)
+            }
         } else {
             // Not connected to a network node, so it is a link connected between 2 regular nodes 
             await createNetwork(key, [fetchNode(from), fetchNode(to)], false);
@@ -113,16 +146,26 @@ async function createNetworkNode(nodes) {
     }
 }
 
+/**
+ * Checks if the given key is the key of a network node
+ * @param {Key of the node} key 
+ */
 function isNetworkNode(key) {
     return (netNodeKeys.includes(key))
 }
 
+/**
+ * Returns if either from or to is a network node 
+ * @param {key} from 
+ * @param {key} to 
+ */
 function isLinkToNetNode(from, to) {
     return (isNetworkNode(from) || isNetworkNode(to))
 }
 
 /**
- * 
+ * Removes a network
+ * It first disconnects all connected containers, then the network is removed 
  * @param {Key of the network to remove} key 
  * @param {Boolean: True = network node, False = regular link} isNode 
  */
@@ -152,6 +195,12 @@ async function deleteNetwork(key, isNode) {
     }
 }
 
+/**
+ * Removes a link between a network node and a node
+ * Used whenever the link is removed, but the network node itself isn't removed
+ * Disconnects the connected node from the network
+ * @param {Key of the link to remove} key 
+ */
 async function disconnectSingle(key) {
     let net = nonNetworkLinks[key];
     let from = net.from;
@@ -168,6 +217,10 @@ async function disconnectSingle(key) {
     nonNetworkLinksKeys.splice(idx, 1);
 }
 
+/**
+ * Stops and deletes the container, key is removed from the array 
+ * @param {Key of the node to delete} key 
+ */
 async function deleteNode(key) {
     let container = fetchNode(key);
     let name = 'node' + key;
@@ -184,28 +237,31 @@ async function deleteNode(key) {
     }
 }
 
-
 /**
  * Handles whenever there is a new save
  * new nodes, networks and network node are created 
+ * Nodes that are absent in the diagram and still have active containers, are removed.
  * @param {Diagram from the front-end} diagram 
  */
 async function handleSave(diagram) {
-    console.log('\n======= NEW SAVE ======= ')
+    console.log('\n======= Diagram saved ======= ')
     // Gets the nodes out of the diagram and immediatly filters out the network nodes
     const nodes = (diagram.nodeDataArray).filter(node => !(node.figure === "Border"));
     const links = (diagram.linkDataArray)
     const netNodes = (diagram.nodeDataArray).filter(node => (node.figure === "Border"))
 
+    // Filter out the new nodes
     const newNodes = nodes.filter(node => !nodeKeys.includes(node.key));
     const newLinks = links.filter(link => !networkKeys.includes(link.key) && !nonNetworkLinksKeys.includes(link.key));
     const newNetNodes = netNodes.filter(node => !netNodeKeys.includes(node.key));
 
+    // Filter out the missing ones
     const missingNodes = nodeKeys.filter(k => !(nodes.map(n => n.key).includes(k)));
     const missingLinks = networkKeys.filter(k => {
         let keys = links.map(l => l.key);
         return (!keys.includes(k))
     })
+    // nonNetworks are links between a node and a network node 
     const missingNonNetworks = nonNetworkLinksKeys.filter(k => !(links.map(l => l.key).includes(k)));
     const missingNetNodes = netNodeKeys.filter(k => !(netNodes.map(n => n.key).includes(k)));
 
@@ -225,6 +281,7 @@ async function handleSave(diagram) {
         }
     });
 
+    // Network nodes
     const nets = newNetNodes.map((netNode) => {
         return {
             "key": netNode.key

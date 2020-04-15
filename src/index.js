@@ -11,7 +11,8 @@ const nodeKeys = [];
 const netNodeKeys = [];
 const networkKeys = [];
 // Keys of the links that do not create a network (= are connected to a network node)
-const nonNetworkLinks = [];
+const nonNetworkLinksKeys = [];
+const nonNetworkLinks = {};
 
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -64,7 +65,7 @@ async function createNetwork(key, linkedContainers, isNode) {
     return net;
 }
 
-function fetchNode(key) {    
+function fetchNode(key) {
     let nameToFind = 'node' + key;
     return docker.container.get(nameToFind)
 }
@@ -77,7 +78,7 @@ function fetchNetwork(key, isNode) {
 
 async function createNodes(nodeProps) {
     for (let props of nodeProps) {
-        let key = props.key;    
+        let key = props.key;
         await createNode(key);
     }
 }
@@ -97,7 +98,8 @@ async function createNetworks(fromTo) {
             net.connect({ Container: node.id })
                 .catch(error => console.log(error));
 
-            nonNetworkLinks.push(key);
+            nonNetworkLinksKeys.push(key);
+            nonNetworkLinks[key] = { "from": from, "to": to };
         } else {
             // Not connected to a network node, so it is a link connected between 2 regular nodes 
             await createNetwork(key, [fetchNode(from), fetchNode(to)], false);
@@ -126,7 +128,7 @@ function isLinkToNetNode(from, to) {
  */
 async function deleteNetwork(key, isNode) {
     let network = fetchNetwork(key, isNode);
-    let name; 
+    let name;
     try {
         let status = await network.status();
         name = status.data.Name;
@@ -134,7 +136,7 @@ async function deleteNetwork(key, isNode) {
         let clientIds = Object.keys(status.data.Containers);
         for (id of clientIds) {
             // disconnect all the connected nodes 
-            await network.disconnect({Container: id});
+            await network.disconnect({ Container: id });
         }
         // Remove the network
         await network.remove()
@@ -148,6 +150,22 @@ async function deleteNetwork(key, isNode) {
     if (idx > -1) {
         arr.splice(idx, 1);
     }
+}
+
+async function disconnectSingle(key) {
+    let net = nonNetworkLinks[key];
+    let from = net.from;
+    let to = net.to;
+    try {
+        let netNode = fetchNetwork((isNetworkNode(from) ? from : to), true)
+        let node = fetchNode((isNetworkNode(from) ? to : from))
+        await netNode.disconnect({ Container: node.id });
+    } catch (error) {
+        console.log(error)
+    }
+    delete nonNetworkLinks[key];
+    let idx = nonNetworkLinksKeys.indexOf(nonNetwork);
+    nonNetworkLinksKeys.splice(idx, 1);
 }
 
 async function deleteNode(key) {
@@ -175,12 +193,12 @@ async function deleteNode(key) {
 async function handleSave(diagram) {
     console.log('\n======= NEW SAVE ======= ')
     // Gets the nodes out of the diagram and immediatly filters out the network nodes
-    const nodes = (diagram.nodeDataArray).filter(node => !(node.text === "Network"));
+    const nodes = (diagram.nodeDataArray).filter(node => !(node.figure === "Border"));
     const links = (diagram.linkDataArray)
-    const netNodes = (diagram.nodeDataArray).filter(node => (node.text === "Network"))
+    const netNodes = (diagram.nodeDataArray).filter(node => (node.figure === "Border"))
 
     const newNodes = nodes.filter(node => !nodeKeys.includes(node.key));
-    const newLinks = links.filter(link => !networkKeys.includes(link.key) && !nonNetworkLinks.includes(link.key));
+    const newLinks = links.filter(link => !networkKeys.includes(link.key) && !nonNetworkLinksKeys.includes(link.key));
     const newNetNodes = netNodes.filter(node => !netNodeKeys.includes(node.key));
 
     const missingNodes = nodeKeys.filter(k => !(nodes.map(n => n.key).includes(k)));
@@ -188,7 +206,7 @@ async function handleSave(diagram) {
         let keys = links.map(l => l.key);
         return (!keys.includes(k))
     })
-    const missingNonNetworks = nonNetworkLinks.filter(k => !(links.map(l => l.key).includes(k)));
+    const missingNonNetworks = nonNetworkLinksKeys.filter(k => !(links.map(l => l.key).includes(k)));
     const missingNetNodes = netNodeKeys.filter(k => !(netNodes.map(n => n.key).includes(k)));
 
     // Keys of the nodes in the diagram
@@ -215,9 +233,17 @@ async function handleSave(diagram) {
 
     // Delete removed networks
     for (networkKey of missingLinks) {
-        await deleteNetwork(networkKey, false); 
+        await deleteNetwork(networkKey, false);
     }
 
+    // Delete links between nodes and network nodes
+    // Needed when the link is removed, but not the network node itself
+    for (nonNetwork of missingNonNetworks) {
+        console.log(`Removing nonnetwork ${nonNetwork}`)
+        await disconnectSingle(nonNetwork);
+    }
+
+    // Delete removed network nodes 
     for (netNodeKey of missingNetNodes) {
         await deleteNetwork(netNodeKey, true)
     }
@@ -225,11 +251,6 @@ async function handleSave(diagram) {
     // Delete removed nodes
     for (nodeKey of missingNodes) {
         deleteNode(nodeKey);
-    }
-
-    for (nonNetwork of missingNonNetworks) {
-        let idx = nonNetworkLinks.indexOf(nonNetwork);
-        nonNetworkLinks.splice(idx, 1);
     }
 
     // Create nodes

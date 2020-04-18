@@ -17,7 +17,6 @@ const nonNetworkLinks = {};
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-// Instantiates the Docker containers for each new node
 /**
  * Creates a container for a node 
  * 
@@ -26,10 +25,10 @@ const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 async function createNode(key) {
     nodeKeys.push(key);
     let containerName = 'node' + key;
-
+    let container;
     // Create new Docker container
     try {
-        const container = await (docker.container.create({
+        container = await (docker.container.create({
             Image: 'nginx:latest',
             name: containerName
         }))
@@ -125,7 +124,7 @@ async function createNetworks(fromTo) {
             try {
                 let net = (isNetworkNode(from) ? fetchNetwork(from, true) : fetchNetwork(to, true))
                 let node = (isNetworkNode(from) ? fetchNode(to) : fetchNode(from))
-                
+
                 net.connect({ Container: node.id })
 
                 nonNetworkLinksKeys.push(key);
@@ -245,7 +244,7 @@ async function deleteNode(key) {
  */
 async function handleSave(diagram) {
     console.log('\n======= Diagram saved ======= ')
-    // Gets the nodes out of the diagram and immediatly filters out the network nodes
+    // Gets the nodes out of the diagram and immediatly filter out the network nodes
     const nodes = (diagram.nodeDataArray).filter(node => !(node.figure === "Border"));
     const links = (diagram.linkDataArray)
     const netNodes = (diagram.nodeDataArray).filter(node => (node.figure === "Border"))
@@ -320,6 +319,28 @@ async function handleSave(diagram) {
     await createNetworks(fromTo);
 }
 
+async function enableContainer(key) {
+    try {
+        let container = fetchNode(key);
+        await container.restart();
+        console.log(`Enabled node${key}`)
+    } catch (error) {
+        console.log(error);
+    }
+
+}
+
+async function disableContainer(key) {
+    try {
+        let container = fetchNode(key);
+        await container.pause();
+        console.log(`Disabled node${key}`)
+    } catch (error) {
+        console.log(error);
+    }
+
+}
+
 // Webpage setup
 const PORT = 3000;
 
@@ -332,6 +353,10 @@ app.get('/', (req, res) => {
 io.on('connection', (socket) => {
     socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
     socket.on("nodeClicked", () => console.log('received click'));
+    socket.on("toggleContainer", (key, evt) => {
+        let proc = (evt == 'enable' ? enableContainer : disableContainer)
+        proc(key);
+    })
 })
 
 

@@ -308,3 +308,14 @@ function nodeClicked(e, obj) {
     name2.innerText = name;
     //socket.emit("nodeClicked")
 }
+
+function toggleContainer(event) {
+    let node = document.getElementById("nodeName1").innerText;
+    let key = node.substring(node.indexOf("-"));
+    let data = myDiagram.model.findNodeDataForKey(key)
+    let color = (event == 'enable' ? "#00AD5F" : "#cf382d")
+    myDiagram.startTransaction();
+    myDiagram.model.setDataProperty(data, "fill", color);
+    myDiagram.commitTransaction();
+    socket.emit("toggleContainer", key, event);
+}

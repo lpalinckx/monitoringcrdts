@@ -112,39 +112,42 @@ textarea {
     margin-bottom: 1rem;
 }
 
-
 .enable {
+    width: 100%;
     background-color: #4CAF50;
     border: solid 1px darkgreen;
     border-radius: 4px;
     color: white;
-    padding: 15px 64px;
     margin: 5px;
     text-align: center;
     text-decoration: none;
-    display: inline-block;
+    padding: 10px 40px;
     font-size: 20px;
     font-weight: bold;
+    
 }
 
 .disable {
+    width: 100%;
     background-color:rgb(226, 90, 0);
     border: solid 1px darkred;
     border-radius: 4px;
     color: white;
-    padding: 15px 64px;
     margin: 5px;
     text-align: center;
     text-decoration: none;
-    display: inline-block;
+    padding: 10px 40px;
     font-size: 20px;
     font-weight: bold;
+    
 }
 
 .buttons { 
     display: flex;
     align-items: center;
     justify-content: center;
+    margin: auto;
+    padding: 0rem 10rem;
 }
 
 .subtext { 

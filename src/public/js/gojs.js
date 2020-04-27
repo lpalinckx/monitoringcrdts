@@ -309,13 +309,28 @@ function nodeClicked(e, obj) {
     //socket.emit("nodeClicked")
 }
 
-function toggleContainer(event) {
+function getKey() {
     let node = document.getElementById("nodeName1").innerText;
     let key = node.substring(node.indexOf("-"));
+    return key;
+}
+
+function toggleContainer(event) {
+    let key = getKey();
     let data = myDiagram.model.findNodeDataForKey(key)
     let color = (event == 'enable' ? "#00AD5F" : "#cf382d")
     myDiagram.startTransaction();
     myDiagram.model.setDataProperty(data, "fill", color);
     myDiagram.commitTransaction();
     socket.emit("toggleContainer", key, event);
+}
+
+function disconnectContainer() {
+    let key = getKey();
+    socket.emit("disconnectContainer", key);
+}
+
+function reconnectContainer() {
+    let key = getKey();
+    socket.emit("reconnectContainer", key); 
 }

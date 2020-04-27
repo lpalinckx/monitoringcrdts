@@ -51,7 +51,7 @@
         <div class="application">
           <h2>Application settings</h2>
           <div class="subtext">
-            Selected node: 
+            Selected node:
             <span id="nodeName1">None</span>
           </div>
           <hr>
@@ -61,13 +61,17 @@
         <div class="node">
           <h2>Node settings</h2>
           <div class="subtext">
-            Selected node: 
+            Selected node:
             <span id="nodeName2">None</span>
           </div>
           <hr>
           <div class="buttons">
             <button class="enable" onclick="toggleContainer('enable')">Enable</button>
             <button class="disable" onclick="toggleContainer('disable')">Disable</button>
+          </div>
+          <div class="buttons">
+            <button class="enable" onclick="reconnectContainer()">Reconnect</button>
+            <button class="disable" onclick="disconnectContainer()">Disconnect</button>
           </div>
         </div>
       </div>

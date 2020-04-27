@@ -14,6 +14,11 @@ const networkKeys = [];
 const nonNetworkLinksKeys = [];
 const nonNetworkLinks = {};
 
+// Whenever a node is disconnected from a network, 
+// we need to keep track of what networks it was connected to, 
+// to make sure it is able to reconnect to the networks.
+const networkConnections = {};
+
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
@@ -65,7 +70,7 @@ async function createNetwork(key, linkedContainers, isNode) {
     for (let container of linkedContainers) {
         try {
             net.connect({ Container: container.id })
-            console.log(`Connected a container to network ${containerName}`);
+            console.log(`Connected a container to ${containerName}`);
         } catch (error) {
             console.log(error)
         }
@@ -322,7 +327,7 @@ async function handleSave(diagram) {
 async function enableContainer(key) {
     try {
         let container = fetchNode(key);
-        await container.restart();
+        await container.unpause();
         console.log(`Enabled node${key}`)
     } catch (error) {
         console.log(error);
@@ -341,6 +346,69 @@ async function disableContainer(key) {
 
 }
 
+/**
+ * 
+ * @param {Key of the node} key 
+ * @returns Array of networks to which the container is connected
+ */
+async function connectedTo(key) {
+    let node = fetchNode(key);
+    let status = await node.status();
+    let id = status.data.Id;
+
+    let connections = []
+    for (netKey of networkKeys) {
+        let network = fetchNetwork(netKey, false);
+        let status = await network.status();
+        let keys = Object.keys(status.data.Containers);
+        if (keys.includes(id)) {
+            connections.push(network);
+        }
+    }
+    return connections;
+}
+
+/**
+ * Disconnect the node from the networks
+ * @param {Key of the node} key 
+ */
+async function disconnectNode(key) {
+    let node = fetchNode(key);
+    let containerId = (await node.status()).data.Id;
+    let connections = await connectedTo(key);
+
+    networkConnections[node.id] = connections;
+    try {
+        console.log(`Disconnecting ${node.id} from network(s): `)
+        for (n of connections) {
+            n.disconnect({ Container: containerId });
+            console.log(n.id);
+        }
+    } catch (error) {
+        console.log(error)
+    }
+
+}
+
+/**
+ * Reconnect the node to the previously disconnected networks
+ * @param {Key of the node} key 
+ */
+async function reconnectNode(key) {
+    let node = fetchNode(key);
+    let containerId = (await node.status()).data.Id;
+    let prevConnections = networkConnections[node.id];
+    try {
+        console.log(`Reconnecting ${node.id} to network(s): `)
+        for (n of prevConnections) {
+            n.connect({ Container: containerId });
+            console.log(n.id);
+        }
+    } catch (error) {
+        console.log(error)
+    }
+}
+
 // Webpage setup
 const PORT = 3000;
 
@@ -356,7 +424,9 @@ io.on('connection', (socket) => {
     socket.on("toggleContainer", (key, evt) => {
         let proc = (evt == 'enable' ? enableContainer : disableContainer)
         proc(key);
-    })
+    });
+    socket.on("disconnectContainer", (key) => disconnectNode(key));
+    socket.on("reconnectContainer", (key) => reconnectNode(key));
 })
 
 

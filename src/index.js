@@ -6,6 +6,9 @@ const net = require('net');
 const { Docker } = require('node-docker-api');
 
 
+// Docker image to use
+const IMAGE = 'luat:latest'
+
 // Keep track of the keys of all the nodes and links in the diagram
 const nodeKeys = [];
 const netNodeKeys = [];
@@ -22,6 +25,13 @@ const networkConnections = {};
 // Server setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
+
+// =====================
+//  Creating containers 
+//  -------------------
+//    Nodes & networks
+// =====================
+
 /**
  * Creates a container for a node 
  * 
@@ -34,7 +44,7 @@ async function createNode(key) {
     // Create new Docker container
     try {
         container = await (docker.container.create({
-            Image: 'nginx:latest',
+            Image: IMAGE,
             name: containerName
         }))
         container.start();
@@ -78,26 +88,6 @@ async function createNetwork(key, linkedContainers, isNode) {
 
     // Return container
     return net;
-}
-
-/**
- * Returns the container of the node 
- * @param {Key of the node} key 
- */
-function fetchNode(key) {
-    let nameToFind = 'node' + key;
-    return docker.container.get(nameToFind)
-}
-
-/**
- * Returns the network container 
- * @param {key of the network to return} key 
- * @param {Boolean: true = return a network node, false = return a regular network} isNode 
- */
-function fetchNetwork(key, isNode) {
-    let name = (isNode ? 'networkNode' : 'network');
-    let nameToFind = name + key;
-    return docker.network.get(nameToFind)
 }
 
 /**
@@ -150,21 +140,28 @@ async function createNetworkNode(nodes) {
     }
 }
 
-/**
- * Checks if the given key is the key of a network node
- * @param {Key of the node} key 
- */
-function isNetworkNode(key) {
-    return (netNodeKeys.includes(key))
-}
+// =====================
+//  Deleting containers
+// =====================
 
 /**
- * Returns if either from or to is a network node 
- * @param {key} from 
- * @param {key} to 
+ * Stops and deletes the container, key is removed from the array 
+ * @param {Key of the node to delete} key 
  */
-function isLinkToNetNode(from, to) {
-    return (isNetworkNode(from) || isNetworkNode(to))
+async function deleteNode(key) {
+    let container = fetchNode(key);
+    let name = 'node' + key;
+    try {
+        await container.stop();
+        await container.delete();
+        console.log(`Removed ${name}`);
+    } catch (error) {
+        console.log(error)
+    }
+    let idx = nodeKeys.indexOf(key);
+    if (idx > -1) {
+        nodeKeys.splice(idx, 1);
+    }
 }
 
 /**
@@ -221,25 +218,142 @@ async function disconnectSingle(key) {
     nonNetworkLinksKeys.splice(idx, 1);
 }
 
-/**
- * Stops and deletes the container, key is removed from the array 
- * @param {Key of the node to delete} key 
- */
-async function deleteNode(key) {
-    let container = fetchNode(key);
-    let name = 'node' + key;
+// =========================
+//  Manipulating containers
+//  -----------------------
+//    Enabling/Disabling, 
+//   disconnect/reconnect
+// =========================
+
+async function enableContainer(key) {
     try {
-        await container.stop();
-        await container.delete();
-        console.log(`Removed ${name}`);
+        let container = fetchNode(key);
+        await container.unpause();
+        console.log(`Enabled node${key}`)
+    } catch (error) {
+        console.log(error);
+    }
+
+}
+
+async function disableContainer(key) {
+    try {
+        let container = fetchNode(key);
+        await container.pause();
+        console.log(`Disabled node${key}`)
+    } catch (error) {
+        console.log(error);
+    }
+
+}
+
+/**
+ * Disconnect the node from the networks
+ * @param {Key of the node} key 
+ */
+async function disconnectNode(key) {
+    let node = fetchNode(key);
+    let containerId = (await node.status()).data.Id;
+    let connections = await connectedTo(key);
+
+    networkConnections[node.id] = connections;
+    try {
+        console.log(`Disconnecting ${node.id} from network(s): `)
+        for (n of connections) {
+            n.disconnect({ Container: containerId });
+            console.log(n.id);
+        }
     } catch (error) {
         console.log(error)
     }
-    let idx = nodeKeys.indexOf(key);
-    if (idx > -1) {
-        nodeKeys.splice(idx, 1);
+
+}
+
+/**
+ * Reconnect the node to the previously disconnected networks
+ * @param {Key of the node} key 
+ */
+async function reconnectNode(key) {
+    let node = fetchNode(key);
+    let containerId = (await node.status()).data.Id;
+    let prevConnections = networkConnections[node.id];
+    try {
+        console.log(`Reconnecting ${node.id} to network(s): `)
+        for (n of prevConnections) {
+            n.connect({ Container: containerId });
+            console.log(n.id);
+        }
+    } catch (error) {
+        console.log(error)
     }
 }
+
+// ==================
+//  Small operations
+// ==================
+
+/**
+ * Returns the container of the node 
+ * @param {Key of the node} key 
+ */
+function fetchNode(key) {
+    let nameToFind = 'node' + key;
+    return docker.container.get(nameToFind)
+}
+
+/**
+ * Returns the network container 
+ * @param {key of the network to return} key 
+ * @param {Boolean: true = return a network node, false = return a regular network} isNode 
+ */
+function fetchNetwork(key, isNode) {
+    let name = (isNode ? 'networkNode' : 'network');
+    let nameToFind = name + key;
+    return docker.network.get(nameToFind)
+}
+
+/**
+ * Checks if the given key is the key of a network node
+ * @param {Key of the node} key 
+ */
+function isNetworkNode(key) {
+    return (netNodeKeys.includes(key))
+}
+
+/**
+ * Returns if either from or to is a network node 
+ * @param {key} from 
+ * @param {key} to 
+ */
+function isLinkToNetNode(from, to) {
+    return (isNetworkNode(from) || isNetworkNode(to))
+}
+
+/**
+ * 
+ * @param {Key of the node} key 
+ * @returns Array of networks to which the container is connected
+ */
+async function connectedTo(key) {
+    let node = fetchNode(key);
+    let status = await node.status();
+    let id = status.data.Id;
+
+    let connections = []
+    for (netKey of networkKeys) {
+        let network = fetchNetwork(netKey, false);
+        let status = await network.status();
+        let keys = Object.keys(status.data.Containers);
+        if (keys.includes(id)) {
+            connections.push(network);
+        }
+    }
+    return connections;
+}
+
+// ================
+//  Main operation 
+// ================
 
 /**
  * Handles whenever there is a new save
@@ -324,98 +438,16 @@ async function handleSave(diagram) {
     await createNetworks(fromTo);
 }
 
-async function enableContainer(key) {
-    try {
-        let container = fetchNode(key);
-        await container.unpause();
-        console.log(`Enabled node${key}`)
-    } catch (error) {
-        console.log(error);
-    }
-
-}
-
-async function disableContainer(key) {
-    try {
-        let container = fetchNode(key);
-        await container.pause();
-        console.log(`Disabled node${key}`)
-    } catch (error) {
-        console.log(error);
-    }
-
-}
-
-/**
- * 
- * @param {Key of the node} key 
- * @returns Array of networks to which the container is connected
- */
-async function connectedTo(key) {
-    let node = fetchNode(key);
-    let status = await node.status();
-    let id = status.data.Id;
-
-    let connections = []
-    for (netKey of networkKeys) {
-        let network = fetchNetwork(netKey, false);
-        let status = await network.status();
-        let keys = Object.keys(status.data.Containers);
-        if (keys.includes(id)) {
-            connections.push(network);
-        }
-    }
-    return connections;
-}
-
-/**
- * Disconnect the node from the networks
- * @param {Key of the node} key 
- */
-async function disconnectNode(key) {
-    let node = fetchNode(key);
-    let containerId = (await node.status()).data.Id;
-    let connections = await connectedTo(key);
-
-    networkConnections[node.id] = connections;
-    try {
-        console.log(`Disconnecting ${node.id} from network(s): `)
-        for (n of connections) {
-            n.disconnect({ Container: containerId });
-            console.log(n.id);
-        }
-    } catch (error) {
-        console.log(error)
-    }
-
-}
-
-/**
- * Reconnect the node to the previously disconnected networks
- * @param {Key of the node} key 
- */
-async function reconnectNode(key) {
-    let node = fetchNode(key);
-    let containerId = (await node.status()).data.Id;
-    let prevConnections = networkConnections[node.id];
-    try {
-        console.log(`Reconnecting ${node.id} to network(s): `)
-        for (n of prevConnections) {
-            n.connect({ Container: containerId });
-            console.log(n.id);
-        }
-    } catch (error) {
-        console.log(error)
-    }
-}
-
-// Webpage setup
+// =============== 
+//  Webpage setup
+// ===============
 const PORT = 3000;
 
 app.use(express.static('src/public'));
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/html/index.html');
+    console.log(`Using docker image: ${IMAGE}`); 
 })
 
 io.on('connection', (socket) => {

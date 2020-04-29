@@ -459,6 +459,7 @@ io.on('connection', (socket) => {
     });
     socket.on("disconnectContainer", (key) => disconnectNode(key));
     socket.on("reconnectContainer", (key) => reconnectNode(key));
+    socket.on("reqImage", (fn) => fn(IMAGE)); 
 })
 
 

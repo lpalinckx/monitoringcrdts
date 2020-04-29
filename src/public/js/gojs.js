@@ -289,24 +289,29 @@ window.onclick = (e) => {
     }
 }
 
-function toggleSnackbar() {
+function toggleSnackbar(msg) {
     let snackbar = document.getElementById("snackbar");
     snackbar.className = "show";
+    snackbar.innerText = "Error: " + msg;
     setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
 }
 
 function myClear() {
     myDiagram.clear();
+    myDiagram.isModified = true;
 }
 
 function nodeClicked(e, obj) {
     let node = obj.part;
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
+    let image = document.getElementById("dockerImage");
+    let img = socket.emit("reqImage", (res) => {
+        image.innerText = res;
+    })
     let name = 'node' + node.key;
     name1.innerText = name;
     name2.innerText = name;
-    //socket.emit("nodeClicked")
 }
 
 function getKey() {
@@ -315,22 +320,77 @@ function getKey() {
     return key;
 }
 
-function toggleContainer(event) {
+// ------------------------------------
+//  Functions for the set manipulation
+// ------------------------------------
+
+let itemInput = document.getElementById("newItem");
+let items = document.getElementById("items");
+let addButton = document.getElementById("addButton");
+
+function createItem(input) {
+    let li = document.createElement("li");
+    let label = document.createElement("label");
+    let remove = document.createElement("button");
+
+    label.innerText = input;
+
+    remove.innerText = "Remove";
+    remove.className = "removeItem";
+
+    li.appendChild(label)
+    li.appendChild(remove)
+    return li;
+}
+
+function addItem() {
+    let value = itemInput.value;
+    if (value == "") {
+        toggleSnackbar("Item name can't be empty")
+    } else {
+        let li = createItem(value);
+
+        items.appendChild(li);
+        bindButtons(li);
+
+        itemInput.value = ""
+    }
+}
+
+function deleteItem() {
+    let li = this.parentNode;
+    let ul = li.parentNode;
+
+    ul.removeChild(li);
+}
+
+function bindButtons(li) {
+    let removeButton = li.querySelector("button.removeItem");
+
+    removeButton.onclick = deleteItem;
+}
+
+addButton.onclick = addItem;
+
+
+// --------------------------
+//  Functions for checkboxes
+// --------------------------
+function checkEnabled() {
+    let checkbox = document.getElementById("cEnabled");
     let key = getKey();
-    let data = myDiagram.model.findNodeDataForKey(key)
-    let color = (event == 'enable' ? "#00AD5F" : "#cf382d")
+    let msg = (checkbox.checked ? "enable" : "disable");
+    let data = myDiagram.model.findNodeDataForKey(key);
+    let color = (checkbox.checked ? "#00AD5F" : "#cf382d")
     myDiagram.startTransaction();
     myDiagram.model.setDataProperty(data, "fill", color);
     myDiagram.commitTransaction();
-    socket.emit("toggleContainer", key, event);
+    socket.emit("toggleContainer", key, msg);
 }
 
-function disconnectContainer() {
+function checkConnected() {
+    let checkbox = document.getElementById("cConnected");
     let key = getKey();
-    socket.emit("disconnectContainer", key);
-}
-
-function reconnectContainer() {
-    let key = getKey();
-    socket.emit("reconnectContainer", key); 
+    let msg = (!checkbox.checked ? "disconnectContainer" : "reconnectContainer");
+    socket.emit(msg, key);
 }

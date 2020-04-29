@@ -54,8 +54,26 @@
             Selected node:
             <span id="nodeName1">None</span>
           </div>
+          <div class="subtext">
+            Node image:
+            <span id="dockerImage">None</span>
+          </div>
           <hr>
-          testestsetestset
+          <div class="crdtOverview">
+            <div class="addDiv">
+              <div class="addDiv">
+                <input type="text" id="newItem" value="" placeholder="Item name">
+                <button class="enable" id="addButton">Add item</button>
+              </div>
+              <button class="disable" id="removeAll">Remove all</button>
+            </div>
+            Items in set:
+            <div class="borderDiv">
+              <ul class="zebra" id="items">
+
+              </ul>
+            </div>
+          </div>
         </div>
 
         <div class="node">
@@ -66,16 +84,17 @@
           </div>
           <hr>
           <div class="buttons">
-            <button class="enable" onclick="toggleContainer('enable')">Enable</button>
-            <button class="disable" onclick="toggleContainer('disable')">Disable</button>
-          </div>
-          <div class="buttons">
-            <button class="enable" onclick="reconnectContainer()">Reconnect</button>
-            <button class="disable" onclick="disconnectContainer()">Disconnect</button>
+            <div>
+              <input type="checkbox" id="cEnabled" onclick="checkEnabled()" checked>
+              <label for="enabled">Enabled</label>
+            </div>
+            <div>
+              <input type="checkbox" id="cConnected" onclick="checkConnected()" checked>
+              <label for="connected">Connected</label>
+            </div>
           </div>
         </div>
       </div>
-
     </div>
   </div>
 </body>

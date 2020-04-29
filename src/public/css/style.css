@@ -34,7 +34,7 @@ body {
 }
 
 .button {
-    background-color: #4CAF50;
+    background-color: rgb(36, 175, 41);
     border: solid 1px darkgreen;
     color: white;
     padding: 15px 32px;
@@ -46,7 +46,7 @@ body {
 }
 
 .exitbutton {
-    background-color: rgb(226, 90, 0);
+    background-color: #da422f;
     border: solid 1px darkred;
     color: white;
     padding: 15px 32px;
@@ -55,14 +55,6 @@ body {
     text-decoration: none;
     display: inline-block;
     font-size: 16px;
-}
-
-.button:hover {
-    background-color: darkgreen;
-}
-
-.exitbutton:hover {
-    background-color: darkred;
 }
 
 #popup {
@@ -114,7 +106,7 @@ textarea {
 
 .enable {
     width: 100%;
-    background-color: #4CAF50;
+    background-color: rgb(36, 175, 41);
     border: solid 1px darkgreen;
     border-radius: 4px;
     color: white;
@@ -124,28 +116,43 @@ textarea {
     padding: 10px 40px;
     font-size: 20px;
     font-weight: bold;
-    
+}
+
+#addButton {
+    width: auto;
+    background-color: rgb(36, 175, 41);
+    border: solid 1px darkgreen;
+    text-align: center;
+    padding: 0.5rem 2rem;
+    display: inline-flex;
 }
 
 .disable {
-    width: 100%;
-    background-color:rgb(226, 90, 0);
+    background-color:#da422f;
     border: solid 1px darkred;
     border-radius: 4px;
     color: white;
     margin: 5px;
     text-align: center;
     text-decoration: none;
-    padding: 10px 40px;
+    padding: 0.5rem 2rem;
     font-size: 20px;
     font-weight: bold;
     
 }
 
+.enable:hover, .button:hover, #addButton:hover {
+    background-color: rgb(9, 156, 33);
+}
+
+.disable:hover, .exitbutton:hover {
+    background-color: rgb(201, 10, 10); 
+}
+
 .buttons { 
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-evenly;
     margin: auto;
     padding: 0rem 10rem;
 }
@@ -155,10 +162,57 @@ textarea {
     text-decoration: dashed;
 }
 
+.crdtOverview {
+    margin: 0.5rem;
+}
+
+.addDiv {
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+}
+
+input[type="text"] {
+    margin: 0;
+    padding: 10px;
+    display: inline-flex;
+}
+
+.removeItem {
+    justify-content: end;
+    border: solid 1px rgb(202, 161, 71);
+    background-color: rgb(237, 211, 64);
+    border-radius: 5px;
+    padding: 0.5rem 1rem;
+    font-size: 17px;
+    width: 1fr;
+}
+
+ul.zebra > li:nth-of-type(odd) {
+    background-color: rgba(95, 158, 160, 0.384);
+}
+
+ul.zebra > li {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    padding: 1rem 0.5rem;
+    border-bottom: 2px solid rgb(221, 221, 221);
+    width: 3fr;
+}
+
+ul {
+    padding-left: 0px;
+}
+
+li > label {
+    width: 90%;
+}
+
 #snackbar {
     visibility: hidden;
     width: fit-content;
-    background-color: red;
+    background-color: rgb(182, 16, 16);
     color: white;
     text-align: center;
     border-radius: 5px;
@@ -168,7 +222,7 @@ textarea {
     left: 50%;
     transform: translateX(-50%);
     bottom: 30px;
-    font-size: 17px;
+    font-size: 20px;
 }
 
 #snackbar.show {

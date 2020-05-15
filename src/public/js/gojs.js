@@ -35,6 +35,10 @@ function init() {
         if (linkIterator.count > 1) myDiagram.remove(sub);
     })
 
+    myDiagram.addDiagramListener("ChangedSelection", (e) => {
+        console.log(`changed selection: ${e.subject}`)
+    })
+
     // when the document is modified, add a "*" to the title and enable the "Save" button
     myDiagram.addDiagramListener("Modified", function (e) {
         var button = document.getElementById("SaveButton");
@@ -289,7 +293,7 @@ window.onclick = (e) => {
     }
 }
 
-function toggleSnackbar(msg) {
+function showError(msg) {
     let snackbar = document.getElementById("snackbar");
     snackbar.className = "show";
     snackbar.innerText = "Error: " + msg;
@@ -299,6 +303,7 @@ function toggleSnackbar(msg) {
 function myClear() {
     myDiagram.clear();
     myDiagram.isModified = true;
+    clearClicked(); 
 }
 
 function nodeClicked(e, obj) {
@@ -306,12 +311,19 @@ function nodeClicked(e, obj) {
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
     let image = document.getElementById("dockerImage");
-    let img = socket.emit("reqImage", (res) => {
+    socket.emit("reqImage", (res) => {
         image.innerText = res;
     })
     let name = 'node' + node.key;
-    name1.innerText = name;
-    name2.innerText = name;
+    name1.innerText = name2.innerText = name;
+}
+
+function clearClicked(){
+    let name1 = document.getElementById("nodeName1");
+    let name2 = document.getElementById("nodeName2");
+
+    let val = "None"; 
+    name1.innerText = name2.innerText = val; 
 }
 
 function getKey() {
@@ -327,6 +339,12 @@ function getKey() {
 let itemInput = document.getElementById("newItem");
 let items = document.getElementById("items");
 let addButton = document.getElementById("addButton");
+
+function isNodeSelected() {
+    if (getKey() == "None") {
+        return false;
+    } else return true;
+}
 
 function createItem(input) {
     let li = document.createElement("li");
@@ -344,24 +362,35 @@ function createItem(input) {
 }
 
 function addItem() {
-    let value = itemInput.value;
-    if (value == "") {
-        toggleSnackbar("Item name can't be empty")
-    } else {
-        let li = createItem(value);
+    if (isNodeSelected()) {
+        let val = itemInput.value;
+        if (val == "") {
+            showError("Item name can't be empty")
+        } else {
+            let li = createItem(val);
 
-        items.appendChild(li);
-        bindButtons(li);
+            items.appendChild(li);
+            bindButtons(li);
 
-        itemInput.value = ""
-    }
+            // Transmit with socket
+            let nodeKey = getKey();
+            console.log(`Added ${val} to ${nodeKey}`);
+            socket.emit("addItem", val, nodeKey);
+        }
+    } else showError("Select a node first"); 
 }
 
 function deleteItem() {
     let li = this.parentNode;
     let ul = li.parentNode;
+    let val = li.childNodes[0].innerText;
+    let nodeKey = getKey();
+
+    console.log(`Removed ${val}`);
 
     ul.removeChild(li);
+
+    socket.emit("removeItem", val, nodeKey)
 }
 
 function bindButtons(li) {
@@ -372,6 +401,11 @@ function bindButtons(li) {
 
 addButton.onclick = addItem;
 
+socket.on('list', list => {
+    for(item of list){
+
+    }
+})
 
 // --------------------------
 //  Functions for checkboxes

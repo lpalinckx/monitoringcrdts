@@ -189,7 +189,7 @@ input[type="text"] {
 }
 
 ul.zebra > li:nth-of-type(odd) {
-    background-color: rgba(95, 158, 160, 0.384);
+    background-color: rgba(140, 153, 153, 0.384);
 }
 
 ul.zebra > li {

@@ -6,8 +6,9 @@ const net = require('net');
 const { Docker } = require('node-docker-api');
 
 
+
 // Docker image to use
-const IMAGE = 'luat:latest'
+const IMAGE = 'luat'
 
 // Keep track of the keys of all the nodes and links in the diagram
 const nodeKeys = [];
@@ -22,8 +23,36 @@ const nonNetworkLinks = {};
 // to make sure it is able to reconnect to the networks.
 const networkConnections = {};
 
-// Server setup
+// Docker setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+// Connections to luat 
+const clients = {}
+const APPLICATIONPORT = 5678;
+
+
+// =================
+//  LuAT connection
+// =================
+
+function b64encode(str) {
+    let buff = new Buffer(str);
+    return buff.toString('base64');
+}
+
+function makeRPCCommand(cmd, args) {
+    let payload = JSON.stringify({
+        key: cmd,
+        args: args
+    });
+
+    return b64encode("JSN" + payload) + "\n";
+}
+
+function doRPCCommand(client, cmd, args) {
+    client.write(makeRPCCommand(cmd, args || []));
+}
+
 
 
 // =====================
@@ -45,15 +74,72 @@ async function createNode(key) {
     try {
         container = await (docker.container.create({
             Image: IMAGE,
-            name: containerName
+            name: containerName,
+            Cmd: ['tail', '-f', '/dev/null'],
+            "HostConfig": {
+                "Mounts": [
+                    {
+                        "Target": "/luat",
+                        "Source": "luatVolume",
+                        "Type": "volume",
+                        "ReadOnly": false
+                    }
+                ]
+            },
+            "WorkingDir": "/luat"
         }))
-        container.start();
+
+        // Start the container
+        await container.start();
+
+        // Start LuAT
+        let luat = await container.exec.create({
+            AttachStdout: true,
+            AttachStderr: true,
+            Cmd: ['lua', 'nswitchboard.lua', 'test_orset_rpc.lua', '5678']
+        })
+
+        await luat.start({ Detach: false });
+
+        // Connect
+
+        await sleep(2000);
+
+        let IP = (await container.status()).data.NetworkSettings.IPAddress;
+
+        let client = new net.Socket();
+        connectClient(client, APPLICATIONPORT, IP, containerName);
         console.log('New container created: ' + containerName);
     } catch (error) {
         console.log(error)
     }
     // Return container
     return container
+}
+
+function sleep(ms) {
+    return new Promise(reslove => setTimeout(reslove, ms));
+}
+
+function connectClient(client, port, ip, containerName) {
+    client.connect(port, ip, () => {
+        client.write("HELLO\n");
+        client.write("RPC\n");
+        doRPCCommand(client, 'register');
+        doRPCCommand(client, 'update');
+    })
+
+    client.on('data', data => {
+        console.log(`${containerName} received: ${data}`)
+        let list = JSON.parse(data);
+        io.emit('list', list);
+    })
+
+    client.on('close', () => {
+        console.log(`${containerName} closed connection to LuAT`);
+    })
+
+    clients[containerName] = client; 
 }
 
 /**
@@ -140,6 +226,23 @@ async function createNetworkNode(nodes) {
     }
 }
 
+// ================
+//  Set operations
+// ================
+
+function addItem(item, key) {
+    let name = "node" + key;
+    let client = clients[name];
+    doRPCCommand(client, 'add', item);
+}
+
+function removeItem(item, node) {
+    let name = "node" + key;
+    let client = clients[name];
+    doRPCCommand(client, 'remove', item);
+}
+
+
 // =====================
 //  Deleting containers
 // =====================
@@ -225,22 +328,40 @@ async function disconnectSingle(key) {
 //   disconnect/reconnect
 // =========================
 
+/**
+ * Unpause container
+ * @param {} key 
+ */
 async function enableContainer(key) {
     try {
         let container = fetchNode(key);
-        await container.unpause();
-        console.log(`Enabled node${key}`)
+        let paused = (await container.status()).data.State.Paused
+        if (paused) {
+            await container.unpause();
+            console.log(`Unpaused node${key}`)
+        } else {
+            console.log(`Node${key} is not paused`);
+        }
     } catch (error) {
         console.log(error);
     }
 
 }
 
+/**
+ * Pause container
+ * @param {} key 
+ */
 async function disableContainer(key) {
     try {
         let container = fetchNode(key);
-        await container.pause();
-        console.log(`Disabled node${key}`)
+        let running = (await container.status()).data.State.Running
+        if (running) {
+            await container.pause();
+            console.log(`Disabled node${key}`)
+        } else {
+            console.log(`Node${key} is already paused or not running`)
+        }
     } catch (error) {
         console.log(error);
     }
@@ -436,6 +557,7 @@ async function handleSave(diagram) {
 
     // Create links
     await createNetworks(fromTo);
+    console.log('Done')
 }
 
 // =============== 
@@ -447,7 +569,7 @@ app.use(express.static('src/public'));
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/html/index.html');
-    console.log(`Using docker image: ${IMAGE}`); 
+    console.log(`Using docker image: ${IMAGE}`);
 })
 
 io.on('connection', (socket) => {
@@ -459,7 +581,11 @@ io.on('connection', (socket) => {
     });
     socket.on("disconnectContainer", (key) => disconnectNode(key));
     socket.on("reconnectContainer", (key) => reconnectNode(key));
-    socket.on("reqImage", (fn) => fn(IMAGE)); 
+    socket.on("reqImage", (fn) => fn(IMAGE));
+
+    // Set manipulation
+    socket.on("addItem", (item, key) => addItem(item, key));
+    socket.on("removeItem", (item, key) => removeItem(item, key));
 })
 
 

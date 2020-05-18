@@ -295,15 +295,24 @@ window.onclick = (e) => {
 
 function showError(msg) {
     let snackbar = document.getElementById("snackbar");
+    snackbar.style.backgroundColor = '#b61010';
     snackbar.className = "show";
     snackbar.innerText = "Error: " + msg;
+    setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
+}
+
+function showDone() {
+    let snackbar = document.getElementById("snackbar");
+    snackbar.style.backgroundColor = '#24af29';
+    snackbar.className = "show";
+    snackbar.innerText = "All done!";
     setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
 }
 
 function myClear() {
     myDiagram.clear();
     myDiagram.isModified = true;
-    clearClicked(); 
+    clearClicked();
 }
 
 function nodeClicked(e, obj) {
@@ -311,19 +320,43 @@ function nodeClicked(e, obj) {
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
     let image = document.getElementById("dockerImage");
+    let enable = document.getElementById("cEnabled");
+    let connect = document.getElementById("cConnected");
+    let ipv4 = document.getElementById("ipv4"); 
+    let portn = document.getElementById("port"); 
     socket.emit("reqImage", (res) => {
         image.innerText = res;
     })
     let name = 'node' + node.key;
-    name1.innerText = name2.innerText = name;
+    socket.emit("reqState", name, (enabled, connected, ip, port) => {
+        if (typeof enabled == 'undefined') {
+            clearClicked();
+        } else {
+            enable.checked = enabled;
+            connect.checked = connected;
+            ipv4.innerText = ip; 
+            portn.innerText = ":"+port; 
+            name1.innerText = name2.innerText = name;
+            fetchList(name);
+        }
+    })
 }
 
-function clearClicked(){
+function clearClicked() {
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
+    let enable = document.getElementById("cEnabled");
+    let connect = document.getElementById("cConnected");
+    let ip = document.getElementById("ipv4"); 
+    let port = document.getElementById("port");
 
-    let val = "None"; 
-    name1.innerText = name2.innerText = val; 
+    let val = "None";
+    name1.innerText = name2.innerText = val;
+    enable.checked = true;
+    connect.checked = true;
+    ip.innerText = ""; 
+    port.innerText = "";
+    clearItems(false); 
 }
 
 function getKey() {
@@ -361,11 +394,13 @@ function createItem(input) {
     return li;
 }
 
-function addItem() {
+function addItem(item) {
     if (isNodeSelected()) {
-        let val = itemInput.value;
+        let val = (typeof item == 'undefined') ? itemInput.value : item;
         if (val == "") {
             showError("Item name can't be empty")
+        } else if (isDupe(val)) {
+            showError("Set can't contain duplicates");
         } else {
             let li = createItem(val);
 
@@ -374,10 +409,19 @@ function addItem() {
 
             // Transmit with socket
             let nodeKey = getKey();
-            console.log(`Added ${val} to ${nodeKey}`);
-            socket.emit("addItem", val, nodeKey);
+            if (typeof item == 'undefined') {
+                socket.emit("addItem", val, nodeKey);
+            }
         }
-    } else showError("Select a node first"); 
+    } else showError("Select a node first");
+}
+
+function isDupe(item) {
+    let lis = document.getElementById("items").childNodes;
+    let items = [];
+    lis.forEach(li => items.push(li.childNodes[0].innerText));
+    //console.log(items.includes(item));
+    return items.includes(item);
 }
 
 function deleteItem() {
@@ -385,46 +429,71 @@ function deleteItem() {
     let ul = li.parentNode;
     let val = li.childNodes[0].innerText;
     let nodeKey = getKey();
-
-    console.log(`Removed ${val}`);
-
     ul.removeChild(li);
-
     socket.emit("removeItem", val, nodeKey)
 }
 
 function bindButtons(li) {
     let removeButton = li.querySelector("button.removeItem");
-
     removeButton.onclick = deleteItem;
 }
 
-addButton.onclick = addItem;
-
-socket.on('list', list => {
-    for(item of list){
-
+function fetchList(nodeName) {
+    clearItems(false);
+    if (nodeName != "None") {
+        socket.emit("reqList", nodeName, (res) => {
+            if (res != null) {
+                //console.log(`Response: ${res}`);
+                for (item of res) {
+                    if (!isDupe(item)) {
+                        addItem(item);
+                    }
+                }
+            }
+        })
     }
-})
+}
+
+function clearItems(emptySet) {
+    let ul = document.getElementById("items");
+    let key = getKey();
+    while (ul.hasChildNodes()) {
+        let li = ul.firstChild;
+        if (emptySet) {
+            let val = li.childNodes[0].innerText;
+            socket.emit("removeItem", val, key);
+        }
+        ul.removeChild(li);
+    }
+}
 
 // --------------------------
 //  Functions for checkboxes
 // --------------------------
 function checkEnabled() {
-    let checkbox = document.getElementById("cEnabled");
-    let key = getKey();
-    let msg = (checkbox.checked ? "enable" : "disable");
-    let data = myDiagram.model.findNodeDataForKey(key);
-    let color = (checkbox.checked ? "#00AD5F" : "#cf382d")
-    myDiagram.startTransaction();
-    myDiagram.model.setDataProperty(data, "fill", color);
-    myDiagram.commitTransaction();
-    socket.emit("toggleContainer", key, msg);
+    if (isNodeSelected()) {
+        let checkbox = document.getElementById("cEnabled");
+        let key = getKey();
+        let msg = (checkbox.checked ? "enable" : "disable");
+        let data = myDiagram.model.findNodeDataForKey(key);
+        let color = (checkbox.checked ? "#00AD5F" : "#cf382d")
+        myDiagram.startTransaction();
+        myDiagram.model.setDataProperty(data, "fill", color);
+        myDiagram.commitTransaction();
+        socket.emit("toggleContainer", key, msg);
+        if (checkbox.checked) {
+            fetchList("node" + key);
+        }
+    }
 }
 
 function checkConnected() {
-    let checkbox = document.getElementById("cConnected");
-    let key = getKey();
-    let msg = (!checkbox.checked ? "disconnectContainer" : "reconnectContainer");
-    socket.emit(msg, key);
+    if (isNodeSelected()) {
+        let checkbox = document.getElementById("cConnected");
+        let key = getKey();
+        let msg = (!checkbox.checked ? "disconnectContainer" : "reconnectContainer");
+        socket.emit(msg, key);
+    }
 }
+
+socket.on('allDone', () => { showDone(); })

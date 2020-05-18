@@ -209,6 +209,11 @@ li > label {
     width: 90%;
 }
 
+.internetopts {
+    margin: 10px; 
+    
+}
+
 #snackbar {
     visibility: hidden;
     width: fit-content;

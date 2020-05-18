@@ -63,9 +63,9 @@
             <div class="addDiv">
               <div class="addDiv">
                 <input type="text" id="newItem" value="" placeholder="Item name">
-                <button class="enable" id="addButton">Add item</button>
+                <button class="enable" id="addButton" onclick="addItem()">Add item</button>
               </div>
-              <button class="disable" id="removeAll">Remove all</button>
+              <button class="disable" id="removeAll" onclick="clearItems(true)">Remove all</button>
             </div>
             Items in set:
             <div class="borderDiv">
@@ -92,6 +92,9 @@
               <input type="checkbox" id="cConnected" onclick="checkConnected()" checked>
               <label for="connected">Connected</label>
             </div>
+          </div>
+          <div class="internetopts">
+            IP Address: <span id="ipv4"></span><span id="port"></span>
           </div>
         </div>
       </div>

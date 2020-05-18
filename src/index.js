@@ -26,9 +26,17 @@ const networkConnections = {};
 // Docker setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-// Connections to luat 
-const clients = {}
-const APPLICATIONPORT = 5678;
+/**
+ * "client"   : socket
+ * "enabled"  : if the container is running 
+ * "connected": is the container connected
+ * "ip"       : ip address
+ * "port"     : port
+ * "list"     : list of items in the set
+ */
+const nodes = {}
+
+let APPLICATIONPORT = 5678;
 
 
 // =================
@@ -53,7 +61,11 @@ function doRPCCommand(client, cmd, args) {
     client.write(makeRPCCommand(cmd, args || []));
 }
 
-
+const promisifyStream = (stream) => new Promise((resolve, reject) => {
+    stream.on('data', (d) => console.log(d.toString()))
+    stream.on('end', resolve)
+    stream.on('error', reject)
+})
 
 // =====================
 //  Creating containers 
@@ -64,7 +76,7 @@ function doRPCCommand(client, cmd, args) {
 /**
  * Creates a container for a node 
  * 
- * @param {Key of the node} key 
+ * @param {String} key 
  */
 async function createNode(key) {
     nodeKeys.push(key);
@@ -92,23 +104,25 @@ async function createNode(key) {
         // Start the container
         await container.start();
 
+        let p = APPLICATIONPORT.toString();
+
         // Start LuAT
         let luat = await container.exec.create({
             AttachStdout: true,
             AttachStderr: true,
-            Cmd: ['lua', 'nswitchboard.lua', 'test_orset_rpc.lua', '5678']
+            Cmd: ['lua', 'nswitchboard.lua', 'test_orset_rpc.lua', p]
         })
 
-        await luat.start({ Detach: false });
+        let output = await luat.start({ Detach: false });
+        promisifyStream(output);
 
         // Connect
-
         await sleep(2000);
-
         let IP = (await container.status()).data.NetworkSettings.IPAddress;
 
         let client = new net.Socket();
         connectClient(client, APPLICATIONPORT, IP, containerName);
+        APPLICATIONPORT++;
         console.log('New container created: ' + containerName);
     } catch (error) {
         console.log(error)
@@ -122,6 +136,7 @@ function sleep(ms) {
 }
 
 function connectClient(client, port, ip, containerName) {
+    console.log(`Connecting ${containerName} to ${ip}:${port}`);
     client.connect(port, ip, () => {
         client.write("HELLO\n");
         client.write("RPC\n");
@@ -132,22 +147,31 @@ function connectClient(client, port, ip, containerName) {
     client.on('data', data => {
         console.log(`${containerName} received: ${data}`)
         let list = JSON.parse(data);
-        io.emit('list', list);
+        pushItem(containerName, list); 
     })
 
     client.on('close', () => {
         console.log(`${containerName} closed connection to LuAT`);
     })
 
-    clients[containerName] = client; 
+    nodes[containerName] = {
+        "client": client,
+        "enabled": true,
+        "connected": true,
+        "ip": ip,
+        "port": port,  
+        "list": [], 
+    }
 }
 
 /**
  * Creates a docker network
  * Connects all the nodes passed in linkedContainers to the new network
- * @param {Key of the network} key 
- * @param {All linked containers to this network} linkedContainers 
- * @param {Boolean: true = network node, false = regular node} isNode 
+ * isNode: true = network node
+ * isNode: false = regular node
+ * @param {String} key 
+ * @param {Array} linkedContainers 
+ * @param {Boolean} isNode 
  * @returns Created network 
  */
 async function createNetwork(key, linkedContainers, isNode) {
@@ -178,7 +202,7 @@ async function createNetwork(key, linkedContainers, isNode) {
 
 /**
  * Creates the containers for all the new nodes in the network
- * @param {Array of objects} nodeProps 
+ * @param {Object[]} nodeProps 
  */
 async function createNodes(nodeProps) {
     for (let props of nodeProps) {
@@ -191,7 +215,7 @@ async function createNodes(nodeProps) {
  * Creates links in bulk, the links are passed as objects in an array.
  * The objects contain the key of the link and the from and to node
  * Links to network nodes do not create a new network, but simply link the node to the network
- * @param {Array of objects, these objects have the from's and to's for each link} fromTo 
+ * @param {Object[]} fromTo 
  */
 async function createNetworks(fromTo) {
     for (let link of fromTo) {
@@ -230,18 +254,42 @@ async function createNetworkNode(nodes) {
 //  Set operations
 // ================
 
+/**
+ * Pushes item(s) to the list of the node 
+ */
+function pushItem(node, items){
+    let empty = []; 
+    for(item of items){
+        empty.push(item)
+    }
+    nodes[node].list = empty; 
+}
+
 function addItem(item, key) {
     let name = "node" + key;
-    let client = clients[name];
-    doRPCCommand(client, 'add', item);
+    let node = nodes[name]; 
+    let client = node.client;
+    let lst = node.list; 
+    console.log(typeof lst);
+    lst.push(item); 
+    nodes[name].list = lst;
+    doRPCCommand(client, 'add', [item]);
 }
 
-function removeItem(item, node) {
+function removeItem(item, key) {
     let name = "node" + key;
-    let client = clients[name];
-    doRPCCommand(client, 'remove', item);
+    let node = nodes[name];
+    let client = node.client;
+    let list = node.list; 
+    const idx = list.indexOf(item); 
+    node.list = list.splice(idx, 1); 
+    doRPCCommand(client, 'remove', [item]);
 }
 
+function returnList(nodeName){
+    let node = nodes[nodeName]
+    return node.list; 
+}
 
 // =====================
 //  Deleting containers
@@ -249,7 +297,7 @@ function removeItem(item, node) {
 
 /**
  * Stops and deletes the container, key is removed from the array 
- * @param {Key of the node to delete} key 
+ * @param {String} key - key of the node to delete
  */
 async function deleteNode(key) {
     let container = fetchNode(key);
@@ -270,8 +318,8 @@ async function deleteNode(key) {
 /**
  * Removes a network
  * It first disconnects all connected containers, then the network is removed 
- * @param {Key of the network to remove} key 
- * @param {Boolean: True = network node, False = regular link} isNode 
+ * @param {String} key 
+ * @param {Boolean} isNode - True = network node, False = regular link
  */
 async function deleteNetwork(key, isNode) {
     let network = fetchNetwork(key, isNode);
@@ -303,7 +351,7 @@ async function deleteNetwork(key, isNode) {
  * Removes a link between a network node and a node
  * Used whenever the link is removed, but the network node itself isn't removed
  * Disconnects the connected node from the network
- * @param {Key of the link to remove} key 
+ * @param {String} key 
  */
 async function disconnectSingle(key) {
     let net = nonNetworkLinks[key];
@@ -330,15 +378,17 @@ async function disconnectSingle(key) {
 
 /**
  * Unpause container
- * @param {} key 
+ * @param {String} key 
  */
 async function enableContainer(key) {
     try {
+        let name = "node" + key;
         let container = fetchNode(key);
         let paused = (await container.status()).data.State.Paused
         if (paused) {
             await container.unpause();
-            console.log(`Unpaused node${key}`)
+            console.log(`Unpaused ${name}`);
+            nodes[name].enabled = true;
         } else {
             console.log(`Node${key} is not paused`);
         }
@@ -350,15 +400,17 @@ async function enableContainer(key) {
 
 /**
  * Pause container
- * @param {} key 
+ * @param {String} key 
  */
 async function disableContainer(key) {
     try {
+        let name = "node" + key;
         let container = fetchNode(key);
         let running = (await container.status()).data.State.Running
         if (running) {
             await container.pause();
-            console.log(`Disabled node${key}`)
+            console.log(`Disabled ${name}`);
+            nodes[name].enabled = false;
         } else {
             console.log(`Node${key} is already paused or not running`)
         }
@@ -370,12 +422,12 @@ async function disableContainer(key) {
 
 /**
  * Disconnect the node from the networks
- * @param {Key of the node} key 
+ * @param {String} key 
  */
 async function disconnectNode(key) {
     let node = fetchNode(key);
     let containerId = (await node.status()).data.Id;
-    let connections = await connectedTo(key);
+    let connections = connectedTo(key);
 
     networkConnections[node.id] = connections;
     try {
@@ -384,6 +436,7 @@ async function disconnectNode(key) {
             n.disconnect({ Container: containerId });
             console.log(n.id);
         }
+        nodes[node.id].connected = false;
     } catch (error) {
         console.log(error)
     }
@@ -392,7 +445,7 @@ async function disconnectNode(key) {
 
 /**
  * Reconnect the node to the previously disconnected networks
- * @param {Key of the node} key 
+ * @param {String} key 
  */
 async function reconnectNode(key) {
     let node = fetchNode(key);
@@ -404,6 +457,7 @@ async function reconnectNode(key) {
             n.connect({ Container: containerId });
             console.log(n.id);
         }
+        nodes[node.id].connected = true;
     } catch (error) {
         console.log(error)
     }
@@ -415,7 +469,7 @@ async function reconnectNode(key) {
 
 /**
  * Returns the container of the node 
- * @param {Key of the node} key 
+ * @param {String} key 
  */
 function fetchNode(key) {
     let nameToFind = 'node' + key;
@@ -424,8 +478,8 @@ function fetchNode(key) {
 
 /**
  * Returns the network container 
- * @param {key of the network to return} key 
- * @param {Boolean: true = return a network node, false = return a regular network} isNode 
+ * @param {String} key 
+ * @param {Boolean} isNode - true = network node, false = regular network
  */
 function fetchNetwork(key, isNode) {
     let name = (isNode ? 'networkNode' : 'network');
@@ -435,7 +489,7 @@ function fetchNetwork(key, isNode) {
 
 /**
  * Checks if the given key is the key of a network node
- * @param {Key of the node} key 
+ * @param {String} key 
  */
 function isNetworkNode(key) {
     return (netNodeKeys.includes(key))
@@ -443,8 +497,8 @@ function isNetworkNode(key) {
 
 /**
  * Returns if either from or to is a network node 
- * @param {key} from 
- * @param {key} to 
+ * @param {String} from 
+ * @param {String} to 
  */
 function isLinkToNetNode(from, to) {
     return (isNetworkNode(from) || isNetworkNode(to))
@@ -452,8 +506,8 @@ function isLinkToNetNode(from, to) {
 
 /**
  * 
- * @param {Key of the node} key 
- * @returns Array of networks to which the container is connected
+ * @param {String} key 
+ * @returns {Array} Array of networks to which the container is connected
  */
 async function connectedTo(key) {
     let node = fetchNode(key);
@@ -472,6 +526,11 @@ async function connectedTo(key) {
     return connections;
 }
 
+function exists(nodeName) {
+    let node = nodes[nodeName];
+    return (typeof node != 'undefined');
+}
+
 // ================
 //  Main operation 
 // ================
@@ -480,7 +539,7 @@ async function connectedTo(key) {
  * Handles whenever there is a new save
  * new nodes, networks and network node are created 
  * Nodes that are absent in the diagram and still have active containers, are removed.
- * @param {Diagram from the front-end} diagram 
+ * @param {JSON} diagram 
  */
 async function handleSave(diagram) {
     console.log('\n======= Diagram saved ======= ')
@@ -546,7 +605,8 @@ async function handleSave(diagram) {
 
     // Delete removed nodes
     for (nodeKey of missingNodes) {
-        deleteNode(nodeKey);
+        console.log(`Removing node${nodeKey}...`)
+        await deleteNode(nodeKey);
     }
 
     // Create nodes
@@ -557,7 +617,8 @@ async function handleSave(diagram) {
 
     // Create links
     await createNetworks(fromTo);
-    console.log('Done')
+
+    io.emit('allDone');
 }
 
 // =============== 
@@ -581,11 +642,24 @@ io.on('connection', (socket) => {
     });
     socket.on("disconnectContainer", (key) => disconnectNode(key));
     socket.on("reconnectContainer", (key) => reconnectNode(key));
-    socket.on("reqImage", (fn) => fn(IMAGE));
+    socket.on("reqImage", (ret) => ret(IMAGE));
+    socket.on("reqState", (name, ret) => {
+        if (exists(name)) {
+            let node = nodes[name]; 
+            ret(node.enabled, node.connected, node.ip, node.port);
+        } else ret();
+
+    });
 
     // Set manipulation
     socket.on("addItem", (item, key) => addItem(item, key));
     socket.on("removeItem", (item, key) => removeItem(item, key));
+    socket.on("reqList", async (nodeName, ret) => {
+        if (exists(nodeName)) {
+            let lst = returnList(nodeName);
+            ret(lst);
+        } else ret();
+    })
 })
 
 

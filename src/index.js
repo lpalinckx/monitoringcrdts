@@ -22,6 +22,7 @@ const nonNetworkLinks = {};
 // we need to keep track of what networks it was connected to, 
 // to make sure it is able to reconnect to the networks.
 const networkConnections = {};
+const networkContainerCache = {};
 
 // Docker setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -35,6 +36,11 @@ const docker = new Docker({ socketPath: '/var/run/docker.sock' });
  * "list"     : list of items in the set
  */
 const nodes = {}
+
+/**
+ * "connected" : if the network is online
+ */
+const networks = {}
 
 let APPLICATIONPORT = 5678;
 
@@ -147,7 +153,7 @@ function connectClient(client, port, ip, containerName) {
     client.on('data', data => {
         console.log(`${containerName} received: ${data}`)
         let list = JSON.parse(data);
-        pushItem(containerName, list); 
+        pushItem(containerName, list);
     })
 
     client.on('close', () => {
@@ -159,8 +165,8 @@ function connectClient(client, port, ip, containerName) {
         "enabled": true,
         "connected": true,
         "ip": ip,
-        "port": port,  
-        "list": [], 
+        "port": port,
+        "list": [],
     }
 }
 
@@ -196,6 +202,7 @@ async function createNetwork(key, linkedContainers, isNode) {
         }
     }
 
+    networks[containerName] = { "connected": true}; 
     // Return container
     return net;
 }
@@ -257,21 +264,21 @@ async function createNetworkNode(nodes) {
 /**
  * Pushes item(s) to the list of the node 
  */
-function pushItem(node, items){
-    let empty = []; 
-    for(item of items){
+function pushItem(node, items) {
+    let empty = [];
+    for (item of items) {
         empty.push(item)
     }
-    nodes[node].list = empty; 
+    nodes[node].list = empty;
 }
 
 function addItem(item, key) {
     let name = "node" + key;
-    let node = nodes[name]; 
+    let node = nodes[name];
     let client = node.client;
-    let lst = node.list; 
+    let lst = node.list;
     console.log(typeof lst);
-    lst.push(item); 
+    lst.push(item);
     nodes[name].list = lst;
     doRPCCommand(client, 'add', [item]);
 }
@@ -280,15 +287,15 @@ function removeItem(item, key) {
     let name = "node" + key;
     let node = nodes[name];
     let client = node.client;
-    let list = node.list; 
-    const idx = list.indexOf(item); 
-    node.list = list.splice(idx, 1); 
+    let list = node.list;
+    const idx = list.indexOf(item);
+    node.list = list.splice(idx, 1);
     doRPCCommand(client, 'remove', [item]);
 }
 
-function returnList(nodeName){
+function returnList(nodeName) {
     let node = nodes[nodeName]
-    return node.list; 
+    return node.list;
 }
 
 // =====================
@@ -328,7 +335,8 @@ async function deleteNetwork(key, isNode) {
         let status = await network.status();
         name = status.data.Name;
         // Ids of the connected nodes to this network
-        let clientIds = Object.keys(status.data.Containers);
+        let clientIds = await
+            connectedContainers(network);
         for (id of clientIds) {
             // disconnect all the connected nodes 
             await network.disconnect({ Container: id });
@@ -345,6 +353,7 @@ async function deleteNetwork(key, isNode) {
     if (idx > -1) {
         arr.splice(idx, 1);
     }
+    delete networks[name]; 
 }
 
 /**
@@ -427,7 +436,7 @@ async function disableContainer(key) {
 async function disconnectNode(key) {
     let node = fetchNode(key);
     let containerId = (await node.status()).data.Id;
-    let connections = connectedTo(key);
+    let connections = await connectedTo(key);
 
     networkConnections[node.id] = connections;
     try {
@@ -440,6 +449,7 @@ async function disconnectNode(key) {
     } catch (error) {
         console.log(error)
     }
+    console.log(`disc ${networkConnections[node.id]}`);
 
 }
 
@@ -457,10 +467,55 @@ async function reconnectNode(key) {
             n.connect({ Container: containerId });
             console.log(n.id);
         }
+        delete networkConnections[node.id];
         nodes[node.id].connected = true;
     } catch (error) {
         console.log(error)
     }
+    console.log(`recon ${prevConnections}`);
+}
+
+
+async function disconnectNetwork(key, isNode) {
+    let net = fetchNetwork(key, isNode);
+    let name = (await net.status()).data.Name;
+    let containers = await connectedContainers(net);
+    try {
+        for (c of containers) {
+            await net.disconnect({ Container: c });
+        }
+        networkContainerCache[name] = containers;
+        networks[name].connected = false; 
+        console.log(`Disconnected ${name}`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+async function reconnectNetwork(key, isNode) {
+    let net = fetchNetwork(key, isNode);
+    let name = (await net.status()).data.Name;
+    // All the containers that were previously connected to this network
+    let containers = networkContainerCache[name];
+    try {
+        for (c of containers) {
+            await net.connect({ Container: c });
+        }
+        delete networkContainerCache[name]; 
+        networks[name].connected = true; 
+        console.log(`Reconnected ${name}`);
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+/**
+ * @param {docker.network} network 
+ * @returns Array of ids of the containers connected to this newtork
+ */
+async function connectedContainers(network) {
+    let s = await network.status();
+    return Object.keys(s.data.Containers);
 }
 
 // ==================
@@ -521,6 +576,14 @@ async function connectedTo(key) {
         let keys = Object.keys(status.data.Containers);
         if (keys.includes(id)) {
             connections.push(network);
+        }
+    }
+    for(netKey of netNodeKeys) {
+        let network = fetchNetwork(netKey, true);
+        let status = await network.status(); 
+        let keys = Object.keys(status.data.Containers); 
+        if(keys.includes(id)) {
+            connections.push(network); 
         }
     }
     return connections;
@@ -635,21 +698,36 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
     socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
-    socket.on("nodeClicked", () => console.log('received click'));
     socket.on("toggleContainer", (key, evt) => {
         let proc = (evt == 'enable' ? enableContainer : disableContainer)
         proc(key);
     });
+
     socket.on("disconnectContainer", (key) => disconnectNode(key));
     socket.on("reconnectContainer", (key) => reconnectNode(key));
+
+    socket.on("disconnectNet", (key, isNode) => disconnectNetwork(key, isNode));
+    socket.on("reconnectNet", (key, isNode) => reconnectNetwork(key, isNode));
+
     socket.on("reqImage", (ret) => ret(IMAGE));
-    socket.on("reqState", (name, ret) => {
-        if (exists(name)) {
-            let node = nodes[name]; 
+    socket.on("reqNode", (name, isNetwork, ret) => {
+        let key = parseInt(name.substring(name.indexOf("-")));
+        if(isNetwork && isNetworkNode(key)){
+            let net = networks[name]; 
+            ret(net.connected); 
+        }else if (exists(name)) {
+            let node = nodes[name];
             ret(node.enabled, node.connected, node.ip, node.port);
         } else ret();
 
     });
+    socket.on("reqNet", (key, ret) => {
+        if (networkKeys.includes(key)) {
+            let name = "network"+key
+            let net = networks[name]
+            ret(net.connected); 
+        } else ret(); 
+    })
 
     // Set manipulation
     socket.on("addItem", (item, key) => addItem(item, key));

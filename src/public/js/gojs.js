@@ -154,6 +154,7 @@ function init() {
         $(go.Link,  // the whole link panel
             { selectable: true, selectionAdornmentTemplate: linkSelectionAdornmentTemplate },
             { relinkableFrom: true, relinkableTo: true, reshapable: true },
+            { click: linkClicked },
             {
                 routing: go.Link.AvoidsNodes,
                 curve: go.Link.JumpOver,
@@ -320,26 +321,57 @@ function nodeClicked(e, obj) {
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
     let image = document.getElementById("dockerImage");
+    let title = document.getElementById("settingsTitle"); 
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
-    let ipv4 = document.getElementById("ipv4"); 
-    let portn = document.getElementById("port"); 
+    let ipv4 = document.getElementById("ipv4");
+    let portn = document.getElementById("port");
     socket.emit("reqImage", (res) => {
         image.innerText = res;
     })
-    let name = 'node' + node.key;
-    socket.emit("reqState", name, (enabled, connected, ip, port) => {
-        if (typeof enabled == 'undefined') {
+    let data = node.data; 
+    let networkNode = (data.figure == "Border")
+    let name = (networkNode ? "networkNode" : "node") + node.key
+    socket.emit("reqNode", name, networkNode, (connected, enabled, ip, port) => {
+        if (typeof connected == 'undefined') {
             clearClicked();
+        } else if(networkNode) {
+            title.innerText = "Network settings"
+            enable.disabled = true; 
+            connect.checked = connected; 
+            name2.innerText = name; 
         } else {
+            title.innerText = "Node settings"
+            enable.disabled = false; 
             enable.checked = enabled;
             connect.checked = connected;
-            ipv4.innerText = ip; 
-            portn.innerText = ":"+port; 
+            ipv4.innerText = ip;
+            portn.innerText = ":" + port;
             name1.innerText = name2.innerText = name;
             fetchList(name);
         }
     })
+}
+
+function linkClicked(e, obj){
+    let link = obj.part; 
+    let name2 = document.getElementById("nodeName2"); 
+    let key = link.key;
+    let name = "network"+key; 
+    let enable = document.getElementById("cEnabled");
+    let connect = document.getElementById("cConnected"); 
+    let title = document.getElementById("settingsTitle"); 
+    socket.emit("reqNet", key, (connected) => {
+        if(typeof connected == 'undefined'){
+            clearClicked(); 
+        } else {
+            name2.innerText = name; 
+            connect.checked = connected; 
+            enable.disabled = true; 
+            title.innerText = "Network settings"
+        }
+    })
+
 }
 
 function clearClicked() {
@@ -347,22 +379,32 @@ function clearClicked() {
     let name2 = document.getElementById("nodeName2");
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
-    let ip = document.getElementById("ipv4"); 
+    let ip = document.getElementById("ipv4");
     let port = document.getElementById("port");
 
     let val = "None";
     name1.innerText = name2.innerText = val;
     enable.checked = true;
     connect.checked = true;
-    ip.innerText = ""; 
+    ip.innerText = "";
     port.innerText = "";
-    clearItems(false); 
+    clearItems(false);
 }
 
 function getKey() {
-    let node = document.getElementById("nodeName1").innerText;
+    let node = document.getElementById("nodeName2").innerText;
     let key = node.substring(node.indexOf("-"));
     return key;
+}
+
+function isNetwork() {
+    let name = document.getElementById("nodeName2").innerText; 
+    return (name.substring(0, 7) == 'network'); 
+}
+
+function isNetNode() {
+    let name = document.getElementById("nodeName2").innerText;
+    return (name.substring(0, 11) == 'networkNode'); 
 }
 
 // ------------------------------------
@@ -491,8 +533,10 @@ function checkConnected() {
     if (isNodeSelected()) {
         let checkbox = document.getElementById("cConnected");
         let key = getKey();
-        let msg = (!checkbox.checked ? "disconnectContainer" : "reconnectContainer");
-        socket.emit(msg, key);
+        let type = (isNetwork()) ? "Net" : "Container"
+        let msg = (!checkbox.checked ? "disconnect"+type : "reconnect"+type);
+        let isNode = isNetNode(); 
+        socket.emit(msg, key, isNode);
     }
 }
 

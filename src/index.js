@@ -3,9 +3,13 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const net = require('net');
+const fs = require('fs')
 const { Docker } = require('node-docker-api');
 
-
+// TODO 
+// Fix disconnect such that it wont disconnect the private
+// Apply net changes to container!
+// Remove private net on node deletion
 
 // Docker image to use
 const IMAGE = 'luat'
@@ -27,13 +31,42 @@ const networkContainerCache = {};
 // Docker setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
+const diagramPath = __dirname + '/public/data/diagram.json';
+
+/**
+ * Initialize the network to connect containers to
+ * Prevents containers to connect to default bridge network & communicate
+ */
+async function init() {
+    let icc;
+    try {
+        icc = await (docker.network.get("noCommsNet")).status();
+    } catch (error) { }
+
+    if (typeof icc == 'undefined') {
+        n = await docker.network.create({
+            name: "noCommsNet",
+            Driver: "bridge",
+            Options: {
+                "com.docker.network.bridge.enable_icc": "false",
+            }
+        });
+    }
+}
+let icc = init();
+
 /**
  * "client"   : socket
  * "enabled"  : if the container is running 
  * "connected": is the container connected
- * "ip"       : ip address
- * "port"     : port
  * "list"     : list of items in the set
+ * "internet" : {
+ *      "ip",
+ *      "port",
+ *      "dns",
+ *      "gateway",
+ *      "hostname"
+ *  }
  */
 const nodes = {}
 
@@ -43,6 +76,8 @@ const nodes = {}
 const networks = {}
 
 let APPLICATIONPORT = 5678;
+let APP = 'test_orset_rpc.lua'
+//let APP = 'test_pingpong.lua'
 
 
 // =================
@@ -88,13 +123,29 @@ async function createNode(key) {
     nodeKeys.push(key);
     let containerName = 'node' + key;
     let container;
+
+    //let privateNetName = await createPrivateNetwork(containerName);
+    //let privateNet = docker.network.get(privateNetName);
+
+    try {
+        container = await (docker.container.get(containerName)).status();
+    } catch (error) { }
+
+    if (typeof container != 'undefined') {        
+        await container.stop();
+        await container.delete();
+        console.log("Removed dupe!");
+    }
+
     // Create new Docker container
     try {
+        console.log("Starting create");
         container = await (docker.container.create({
             Image: IMAGE,
             name: containerName,
             Cmd: ['tail', '-f', '/dev/null'],
             "HostConfig": {
+                "NetworkMode": "noCommsNet",
                 "Mounts": [
                     {
                         "Target": "/luat",
@@ -104,7 +155,7 @@ async function createNode(key) {
                     }
                 ]
             },
-            "WorkingDir": "/luat"
+            "WorkingDir": "/luat",
         }))
 
         // Start the container
@@ -116,7 +167,7 @@ async function createNode(key) {
         let luat = await container.exec.create({
             AttachStdout: true,
             AttachStderr: true,
-            Cmd: ['lua', 'nswitchboard.lua', 'test_orset_rpc.lua', p]
+            Cmd: ['lua', 'nswitchboard.lua', APP, p]
         })
 
         let output = await luat.start({ Detach: false });
@@ -124,11 +175,38 @@ async function createNode(key) {
 
         // Connect
         await sleep(2000);
-        let IP = (await container.status()).data.NetworkSettings.IPAddress;
+        let status = await container.status();
+        let networkSettings = status.data.NetworkSettings.Networks["noCommsNet"]
+        //let networkSettings = status.data.NetworkSettings
+        let cfg = status.data.Config;
+
+        let ip = networkSettings.IPAddress;
+        let port = APPLICATIONPORT;
+        let dns = cfg.Domainname;
+        let gateway = networkSettings.Gateway;
+        let hostname = cfg.Hostname;
 
         let client = new net.Socket();
-        connectClient(client, APPLICATIONPORT, IP, containerName);
+
+        await connectClient(client, APPLICATIONPORT, ip, containerName);
         APPLICATIONPORT++;
+
+        let internetOpts = {
+            "ip": ip,
+            "port": port,
+            "dns": dns,
+            "gateway": gateway,
+            "hostname": hostname
+        }
+
+        nodes[containerName] = {
+            "client": client,
+            "enabled": true,
+            "connected": true,
+            "list": [],
+            "internet": internetOpts
+        }
+
         console.log('New container created: ' + containerName);
     } catch (error) {
         console.log(error)
@@ -141,9 +219,9 @@ function sleep(ms) {
     return new Promise(reslove => setTimeout(reslove, ms));
 }
 
-function connectClient(client, port, ip, containerName) {
+async function connectClient(client, port, ip, containerName) {
     console.log(`Connecting ${containerName} to ${ip}:${port}`);
-    client.connect(port, ip, () => {
+    await client.connect(port, ip, () => {
         client.write("HELLO\n");
         client.write("RPC\n");
         doRPCCommand(client, 'register');
@@ -159,15 +237,6 @@ function connectClient(client, port, ip, containerName) {
     client.on('close', () => {
         console.log(`${containerName} closed connection to LuAT`);
     })
-
-    nodes[containerName] = {
-        "client": client,
-        "enabled": true,
-        "connected": true,
-        "ip": ip,
-        "port": port,
-        "list": [],
-    }
 }
 
 /**
@@ -187,7 +256,10 @@ async function createNetwork(key, linkedContainers, isNode) {
     // Create new network
     const net = await (docker.network.create({
         name: containerName,
-        Driver: "bridge"
+        Driver: "bridge",
+        Options: {
+            "com.docker.network.bridge.enable_icc": "true",
+        },
     }));
 
     console.log(`New network ${(isNode) ? "node " : ""} created: ${containerName}`);
@@ -195,14 +267,29 @@ async function createNetwork(key, linkedContainers, isNode) {
     // Link the containers to the network
     for (let container of linkedContainers) {
         try {
-            net.connect({ Container: container.id })
+            await net.connect({ Container: container.id })
+            /*
+            // restart luat 
+            let c = docker.container.get(container.id); 
+            let cname = (await c.status()).data.Name.substr(1)
+            let p = nodes[cname].internet.port.toString(); 
+            c.exec
+            let luat = await c.exec.create({
+                AttachStdout: true,
+                AttachStderr: true,
+                Cmd: ['lua', 'nswitchboard.lua', APP, p]
+            })
+ 
+            let output = await luat.start({ Detach: false });
+            promisifyStream(output);
+            */
             console.log(`Connected a container to ${containerName}`);
         } catch (error) {
             console.log(error)
         }
     }
 
-    networks[containerName] = { "connected": true}; 
+    networks[containerName] = { "connected": true };
     // Return container
     return net;
 }
@@ -255,6 +342,22 @@ async function createNetworkNode(nodes) {
     for (netNode of nodes) {
         await createNetwork(netNode.key, [], true);
     }
+}
+
+/**
+ * Creates a network for a single container
+ * Needed for the creation of containers, otherwise they would connect to a default bridge network
+ * Which would allow communication between containers that are not connected by a link 
+ * @param {String} node - Name of the container
+ */
+async function createPrivateNetwork(node) {
+    let networkName = "private" + node;
+    await (docker.network.create({
+        name: networkName,
+        Driver: "bridge"
+    }))
+
+    return networkName;
 }
 
 // ================
@@ -335,8 +438,7 @@ async function deleteNetwork(key, isNode) {
         let status = await network.status();
         name = status.data.Name;
         // Ids of the connected nodes to this network
-        let clientIds = await
-            connectedContainers(network);
+        let clientIds = await connectedContainers(network);
         for (id of clientIds) {
             // disconnect all the connected nodes 
             await network.disconnect({ Container: id });
@@ -353,7 +455,7 @@ async function deleteNetwork(key, isNode) {
     if (idx > -1) {
         arr.splice(idx, 1);
     }
-    delete networks[name]; 
+    delete networks[name];
 }
 
 /**
@@ -396,8 +498,8 @@ async function enableContainer(key) {
         let paused = (await container.status()).data.State.Paused
         if (paused) {
             await container.unpause();
-            console.log(`Unpaused ${name}`);
             nodes[name].enabled = true;
+            console.log(`Unpaused ${name}`);
         } else {
             console.log(`Node${key} is not paused`);
         }
@@ -418,8 +520,8 @@ async function disableContainer(key) {
         let running = (await container.status()).data.State.Running
         if (running) {
             await container.pause();
-            console.log(`Disabled ${name}`);
             nodes[name].enabled = false;
+            console.log(`Disabled ${name}`);
         } else {
             console.log(`Node${key} is already paused or not running`)
         }
@@ -449,8 +551,6 @@ async function disconnectNode(key) {
     } catch (error) {
         console.log(error)
     }
-    console.log(`disc ${networkConnections[node.id]}`);
-
 }
 
 /**
@@ -472,7 +572,6 @@ async function reconnectNode(key) {
     } catch (error) {
         console.log(error)
     }
-    console.log(`recon ${prevConnections}`);
 }
 
 
@@ -485,7 +584,7 @@ async function disconnectNetwork(key, isNode) {
             await net.disconnect({ Container: c });
         }
         networkContainerCache[name] = containers;
-        networks[name].connected = false; 
+        networks[name].connected = false;
         console.log(`Disconnected ${name}`);
     } catch (error) {
         console.log(error);
@@ -501,8 +600,8 @@ async function reconnectNetwork(key, isNode) {
         for (c of containers) {
             await net.connect({ Container: c });
         }
-        delete networkContainerCache[name]; 
-        networks[name].connected = true; 
+        delete networkContainerCache[name];
+        networks[name].connected = true;
         console.log(`Reconnected ${name}`);
     } catch (error) {
         console.log(error);
@@ -517,6 +616,59 @@ async function connectedContainers(network) {
     let s = await network.status();
     return Object.keys(s.data.Containers);
 }
+
+/**
+ * Changes the IP properties of a container 
+ * TODO: Apply changes to the containers!
+ * @param {Integer} key 
+ * @param {Object} options 
+ */
+async function changeInternetOpts(key, options) {
+    let node = fetchNode(key);
+    let name = "node" + key;
+    let status = (await node.status()).data;
+    let networkSettings = status.NetworkSettings;
+    let cfg = status.Config;
+
+    let opts = Object.keys(options);
+
+    // Change the options in the container
+    try {
+        for (option of opts) {
+            let val = options[option];
+            console.log(`Changing ${option} to ${val}`);
+            // Change option in the object 
+            nodes[name].internet[option] = val;
+            if (!(typeof val == 'undefined')) {
+                switch (option) {
+                    case "ip":
+                        networkSettings.IPAddress = val;
+                        break;
+                    case "port":
+                        console.log(val);
+                        break;
+                    case "dns":
+                        cfg.Domainname = val;
+                        break;
+                    case "gateway":
+                        networkSettings.Gateway = val;
+                        break;
+                    case "hostname":
+                        cfg.Hostname = val;
+                        break;
+                    default:
+                        console.log(`Unknown property: ${option}`);
+                        break;
+                }
+            }
+        }
+    } catch (error) {
+        console.log(error);
+        return false;
+    }
+    return true;
+}
+
 
 // ==================
 //  Small operations
@@ -578,12 +730,12 @@ async function connectedTo(key) {
             connections.push(network);
         }
     }
-    for(netKey of netNodeKeys) {
+    for (netKey of netNodeKeys) {
         let network = fetchNetwork(netKey, true);
-        let status = await network.status(); 
-        let keys = Object.keys(status.data.Containers); 
-        if(keys.includes(id)) {
-            connections.push(network); 
+        let status = await network.status();
+        let keys = Object.keys(status.data.Containers);
+        if (keys.includes(id)) {
+            connections.push(network);
         }
     }
     return connections;
@@ -592,6 +744,13 @@ async function connectedTo(key) {
 function exists(nodeName) {
     let node = nodes[nodeName];
     return (typeof node != 'undefined');
+}
+
+function writeToFile(json) {
+    fs.writeFile(diagramPath, JSON.stringify(json), (err) => {
+        if (err) throw err;
+        console.log('Diagram saved to diagram.json');
+    })
 }
 
 // ================
@@ -606,6 +765,9 @@ function exists(nodeName) {
  */
 async function handleSave(diagram) {
     console.log('\n======= Diagram saved ======= ')
+
+    writeToFile(diagram);
+
     // Gets the nodes out of the diagram and immediatly filter out the network nodes
     const nodes = (diagram.nodeDataArray).filter(node => !(node.figure === "Border"));
     const links = (diagram.linkDataArray)
@@ -696,6 +858,10 @@ app.get('/', (req, res) => {
     console.log(`Using docker image: ${IMAGE}`);
 })
 
+app.get('/download', (req, res) => {
+    res.download(diagramPath);
+})
+
 io.on('connection', (socket) => {
     socket.on("saved", (diagramJson) => { handleSave(diagramJson) });
     socket.on("toggleContainer", (key, evt) => {
@@ -709,24 +875,32 @@ io.on('connection', (socket) => {
     socket.on("disconnectNet", (key, isNode) => disconnectNetwork(key, isNode));
     socket.on("reconnectNet", (key, isNode) => reconnectNetwork(key, isNode));
 
-    socket.on("reqImage", (ret) => ret(IMAGE));
+    socket.on("reqApp", (ret) => ret(APP));
     socket.on("reqNode", (name, isNetwork, ret) => {
         let key = parseInt(name.substring(name.indexOf("-")));
-        if(isNetwork && isNetworkNode(key)){
-            let net = networks[name]; 
-            ret(net.connected); 
-        }else if (exists(name)) {
+        if (isNetwork && isNetworkNode(key)) {
+            let net = networks[name];
+            ret(net.connected);
+        } else if (exists(name)) {
             let node = nodes[name];
-            ret(node.enabled, node.connected, node.ip, node.port);
+            ret(node.connected, node.enabled, node.internet);
         } else ret();
 
     });
+
     socket.on("reqNet", (key, ret) => {
         if (networkKeys.includes(key)) {
-            let name = "network"+key
+            let name = "network" + key
             let net = networks[name]
-            ret(net.connected); 
-        } else ret(); 
+            ret(net.connected);
+        } else ret();
+    })
+
+    socket.on("internetOpts", (key, obj, ret) => {
+        let name = 'node' + key;
+        if (exists(name)) {
+            (changeInternetOpts(key, obj)) ? ret(true) : ret(false)
+        } else ret(false);
     })
 
     // Set manipulation

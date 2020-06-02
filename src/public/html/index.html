@@ -42,6 +42,7 @@
                     "linkDataArray": []
                   }
                   </textarea>
+          <button class="button" onclick='window.open("/download", "_blank")'>Download</button>
           <button class="exitbutton" onclick="hidePopup()">Close</button>
           <button class="button" onclick="load()" id="LoadButton" hidden>Load diagram</button>
         </div>
@@ -55,8 +56,8 @@
             <span id="nodeName1">None</span>
           </div>
           <div class="subtext">
-            Node image:
-            <span id="dockerImage">None</span>
+            Application:
+            <span id="runningApp">None</span>
           </div>
           <hr>
           <div class="crdtOverview">
@@ -94,11 +95,36 @@
             </div>
           </div>
           <div class="internetopts">
-            IP Address: <span id="ipv4"></span><span id="port"></span>
+            <div class="internet">
+              <label for="ip">IP Address:</label>
+              <input type="text" id="ip"><br>
+              <button class="removeItem" onclick="internetOptions()">Change</button>
+            </div>
+            <div class="internet">
+              <label for="port">Port:</label>
+              <input type="text" id="port"><br>
+              <button class="removeItem" onclick="internetOptions()">Change</button>
+            </div>
+            <div class="internet">
+              <label for="dns">DNS:</label>
+              <input type="text" id="dns"><br>
+              <button class="removeItem" onclick="internetOptions()">Change</button>
+            </div>
+            <div class="internet">
+              <label for="gateway">Gateway:</label>
+              <input type="text" id="gateway"><br>
+              <button class="removeItem" onclick="internetOptions()">Change</button>
+            </div>
+            <div class="internet">
+              <label for="hostname">Hostname:</label>
+              <input type="text" id="hostname"><br>
+              <button class="removeItem" onclick="internetOptions()">Change</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+  </div>
   </div>
 </body>
 

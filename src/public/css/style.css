@@ -154,7 +154,7 @@ textarea {
     align-items: center;
     justify-content: space-evenly;
     margin: auto;
-    padding: 0rem 10rem;
+    padding: 1rem 10rem;
 }
 
 .subtext { 
@@ -188,6 +188,10 @@ input[type="text"] {
     width: 1fr;
 }
 
+.removeItem:hover {
+    background-color: rgb(190, 167, 32);
+}
+
 ul.zebra > li:nth-of-type(odd) {
     background-color: rgba(140, 153, 153, 0.384);
 }
@@ -209,9 +213,29 @@ li > label {
     width: 90%;
 }
 
+.margin {
+    margin-top: 10px;
+}
+
+.internet {
+    display: flex;
+    align-items: center;
+    justify-content: space-evenly;
+    width: 100%;
+    margin: 10px;
+}
+
 .internetopts {
     margin: 10px; 
-    
+    width: 100%;
+}
+
+.internet > label {
+    width: 150px;
+}
+
+input[type="text"] {
+    font-size: 17px; 
 }
 
 #snackbar {

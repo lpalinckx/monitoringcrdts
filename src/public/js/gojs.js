@@ -213,6 +213,9 @@ function load() {
     myDiagram.model = go.Model.fromJson(document.getElementById("mySavedModel").value);
     loadDiagramProperties();  // do this after the Model.modelData has been brought into memory
     popupDisplay('none');
+    save();
+    let inp = document.getElementById("mySavedModel").value;
+    socket.emit("saved", JSON.parse(inp));
 }
 
 function saveDiagramProperties() {
@@ -269,6 +272,7 @@ function mySave() {
     text.innerText = "Save the current configuration as a JSON object."
     button.style.visibility = 'hidden';
     popupDisplay('block');
+    showInfo("Processing...", 1)
     socket.emit("saved", JSON.parse(inp));
 }
 
@@ -294,19 +298,37 @@ window.onclick = (e) => {
     }
 }
 
-function showError(msg) {
-    let snackbar = document.getElementById("snackbar");
-    snackbar.style.backgroundColor = '#b61010';
-    snackbar.className = "show";
-    snackbar.innerText = "Error: " + msg;
-    setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
-}
 
-function showDone() {
+let infoColor = '#24af29';
+let warningColor = '#ff801f';
+let errorColor = '#b61010';
+/**
+ * Severity = 0: info
+ * Severity = 1: warning
+ * Severity = 2: error
+ * @param {String} msg 
+ * @param {Number} severity 
+ */
+function showInfo(msg, severity) {
     let snackbar = document.getElementById("snackbar");
-    snackbar.style.backgroundColor = '#24af29';
+    let color = errorColor;
+    switch (severity) {
+        case 0:
+            color = infoColor;
+            break;
+
+        case 1:
+            color = warningColor;
+        default:
+            break;
+    }
+    snackbar.style.backgroundColor = color;
     snackbar.className = "show";
-    snackbar.innerText = "All done!";
+    let tag = ""
+    if (severity == 2) {
+        tag = "Error: "
+    }
+    snackbar.innerText = tag + msg;
     setTimeout(() => { snackbar.className = snackbar.className.replace("show", "") }, 3000);
 }
 
@@ -320,54 +342,63 @@ function nodeClicked(e, obj) {
     let node = obj.part;
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
-    let image = document.getElementById("dockerImage");
-    let title = document.getElementById("settingsTitle"); 
+    let app = document.getElementById("runningApp");
+    let title = document.getElementById("settingsTitle");
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
-    let ipv4 = document.getElementById("ipv4");
-    let portn = document.getElementById("port");
-    socket.emit("reqImage", (res) => {
-        image.innerText = res;
+
+    let ip = document.getElementById("ip");
+    let port = document.getElementById("port");
+    let dns = document.getElementById("dns");
+    let gateway = document.getElementById("gateway");
+    let hostname = document.getElementById("hostname");
+
+    socket.emit("reqApp", (res) => {
+        app.innerText = res;
     })
-    let data = node.data; 
+    let data = node.data;
     let networkNode = (data.figure == "Border")
     let name = (networkNode ? "networkNode" : "node") + node.key
-    socket.emit("reqNode", name, networkNode, (connected, enabled, ip, port) => {
+    socket.emit("reqNode", name, networkNode, (connected, enabled, internet) => {
         if (typeof connected == 'undefined') {
             clearClicked();
-        } else if(networkNode) {
+        } else if (networkNode) {
             title.innerText = "Network settings"
-            enable.disabled = true; 
-            connect.checked = connected; 
-            name2.innerText = name; 
+            enable.disabled = true;
+            connect.checked = connected;
+            name2.innerText = name;
         } else {
+            console.dir(internet);
             title.innerText = "Node settings"
-            enable.disabled = false; 
+            enable.disabled = false;
             enable.checked = enabled;
             connect.checked = connected;
-            ipv4.innerText = ip;
-            portn.innerText = ":" + port;
             name1.innerText = name2.innerText = name;
+            ip.value = internet.ip;
+            port.value = internet.port;
+            dns.value = internet.dns;
+            gateway.value = internet.gateway;
+            hostname.value = internet.hostname;
             fetchList(name);
         }
     })
 }
 
-function linkClicked(e, obj){
-    let link = obj.part; 
-    let name2 = document.getElementById("nodeName2"); 
+function linkClicked(e, obj) {
+    let link = obj.part;
+    let name2 = document.getElementById("nodeName2");
     let key = link.key;
-    let name = "network"+key; 
+    let name = "network" + key;
     let enable = document.getElementById("cEnabled");
-    let connect = document.getElementById("cConnected"); 
-    let title = document.getElementById("settingsTitle"); 
+    let connect = document.getElementById("cConnected");
+    let title = document.getElementById("settingsTitle");
     socket.emit("reqNet", key, (connected) => {
-        if(typeof connected == 'undefined'){
-            clearClicked(); 
+        if (typeof connected == 'undefined') {
+            clearClicked();
         } else {
-            name2.innerText = name; 
-            connect.checked = connected; 
-            enable.disabled = true; 
+            name2.innerText = name;
+            connect.checked = connected;
+            enable.disabled = true;
             title.innerText = "Network settings"
         }
     })
@@ -379,15 +410,18 @@ function clearClicked() {
     let name2 = document.getElementById("nodeName2");
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
-    let ip = document.getElementById("ipv4");
+    let app = document.getElementById("runningApp");
+
+    let ip = document.getElementById("ip");
     let port = document.getElementById("port");
+    let dns = document.getElementById("dns");
+    let gateway = document.getElementById("gateway");
+    let hostname = document.getElementById("hostname");
 
     let val = "None";
-    name1.innerText = name2.innerText = val;
-    enable.checked = true;
-    connect.checked = true;
-    ip.innerText = "";
-    port.innerText = "";
+    name1.innerText = name2.innerText = app.innerText = val;
+    enable.checked = connect.checked = true;
+    ip.value = port.value = dns.value = gateway.value = hostname.value = "";
     clearItems(false);
 }
 
@@ -398,13 +432,13 @@ function getKey() {
 }
 
 function isNetwork() {
-    let name = document.getElementById("nodeName2").innerText; 
-    return (name.substring(0, 7) == 'network'); 
+    let name = document.getElementById("nodeName2").innerText;
+    return (name.substring(0, 7) == 'network');
 }
 
 function isNetNode() {
     let name = document.getElementById("nodeName2").innerText;
-    return (name.substring(0, 11) == 'networkNode'); 
+    return (name.substring(0, 11) == 'networkNode');
 }
 
 // ------------------------------------
@@ -440,9 +474,9 @@ function addItem(item) {
     if (isNodeSelected()) {
         let val = (typeof item == 'undefined') ? itemInput.value : item;
         if (val == "") {
-            showError("Item name can't be empty")
+            showInfo("Item name can't be empty", 2)
         } else if (isDupe(val)) {
-            showError("Set can't contain duplicates");
+            showInfo("Set can't contain duplicates", 2);
         } else {
             let li = createItem(val);
 
@@ -455,7 +489,7 @@ function addItem(item) {
                 socket.emit("addItem", val, nodeKey);
             }
         }
-    } else showError("Select a node first");
+    } else showInfo("Select a node first", 2);
 }
 
 function isDupe(item) {
@@ -509,6 +543,31 @@ function clearItems(emptySet) {
     }
 }
 
+function internetOptions() {
+    if (isNodeSelected() && !isNetNode()) {
+        let ip = document.getElementById("ip").value;
+        let port = document.getElementById("port").value;
+        let dns = document.getElementById("dns").value;
+        let gateway = document.getElementById("gateway").value;
+        let hostname = document.getElementById("hostname").value;
+
+        let obj = {
+            "ip": ip,
+            "port": port,
+            "dns": dns,
+            "gateway": gateway,
+            "hostname": hostname
+        }
+
+        let key = getKey();
+        socket.emit("internetOpts", key, obj, (ret) => {
+            if (ret) {
+                showInfo(`Updated internet settings for ${nodeName}!`, 0);
+            } else showInfo(`Something went wrong!`, 2)
+        });
+    }
+}
+
 // --------------------------
 //  Functions for checkboxes
 // --------------------------
@@ -534,10 +593,14 @@ function checkConnected() {
         let checkbox = document.getElementById("cConnected");
         let key = getKey();
         let type = (isNetwork()) ? "Net" : "Container"
-        let msg = (!checkbox.checked ? "disconnect"+type : "reconnect"+type);
-        let isNode = isNetNode(); 
+        let msg = (!checkbox.checked ? "disconnect" + type : "reconnect" + type);
+        let isNode = isNetNode();
         socket.emit(msg, key, isNode);
     }
 }
 
-socket.on('allDone', () => { showDone(); })
+socket.on('allDone', () => {
+    idx = document.title.indexOf("*");
+    if (idx >= 0) document.title = document.title.substr(0, idx);
+    showInfo("All done!", 0);
+})

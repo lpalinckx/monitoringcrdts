@@ -1,0 +1,3 @@
+{
+    "ignore": ["src/public/data/diagram.json"]
+}

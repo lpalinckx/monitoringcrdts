@@ -4,6 +4,7 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const net = require('net');
 const fs = require('fs')
+const path = require('path')
 const { Docker } = require('node-docker-api');
 
 // TODO 
@@ -852,6 +853,9 @@ async function handleSave(diagram) {
 const PORT = 3000;
 
 app.use(express.static('src/public'));
+
+let xtermpath = path.join(__dirname, '..', 'node_modules', 'xterm')
+app.use('/xtermfiles', express.static(xtermpath))
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/html/index.html');

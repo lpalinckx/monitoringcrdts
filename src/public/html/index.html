@@ -4,9 +4,13 @@
 <head>
   <title>Monitoring tool</title>
   <link rel="stylesheet" type="text/css" href="css/style.css">
+  <link rel="stylesheet" type="text/css" href="/xtermfiles/css/xterm.css">
+  <script src="/xtermfiles/lib/xterm.js"></script>
   <script src="https://unpkg.com/gojs/release/go-debug.js"></script>
   <script src="/socket.io/socket.io.js"></script>
+  <script type="text/javascript" src="js/terminal.js" defer></script>
   <script type="text/javascript" src="js/gojs.js" defer></script>
+
 </head>
 
 <body onload="init()">
@@ -49,6 +53,8 @@
       </div>
 
       <div class="props">
+
+        <!--
         <div class="application">
           <h2>Application settings</h2>
           <div class="subtext">
@@ -75,6 +81,17 @@
               </ul>
             </div>
           </div>
+        </div>
+        -->
+
+        <div class="application">
+          <h2>Application settings</h2>
+          <div class="subtext">
+            Selected node:
+            <span id="nodeName1">None</span>
+          </div>
+          <hr>
+          <div id="terminal"></div>
         </div>
 
         <div class="node">

@@ -23,22 +23,28 @@ function runTerminal() {
     term.onData(e => {
         switch (e) {
             case '\r': // Enter
-                console.log(currLine);
+                if(currLine == "clear") {
+                    clearTerminal(); 
+                    break;
+                }
                 socket.emit('term', currLine, (result) => {
                     out(result)
                     currLine = "";
                     prompt(term);
                 });
                 break;
+
             case '\u0003': // Ctrl+C
                 currLine = "";
                 prompt(term);
                 break;
+                
             case '\u007F': // Backspace (DEL)
                 // Do not delete the prompt
                 if (term._core.buffer.x > 2) {
                     term.write('\b \b');
                 }
+                currLine = currLine.slice(0, -1)
                 break;
             default:
                 term.write(e);
@@ -49,6 +55,13 @@ function runTerminal() {
 
 function prompt(t) {
     term.write('\r\n$ ');
+}
+
+function clearTerminal() {
+    term.write('\x1bc')
+    term.writeln('\x1B[1;3;31mxterm.js\x1B[0m: Monitoring tool control');
+    term.writeln('Type "help" for a list of possible commands')
+    prompt(term); 
 }
 
 function out(output) {

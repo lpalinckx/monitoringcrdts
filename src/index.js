@@ -754,6 +754,40 @@ function writeToFile(json) {
     })
 }
 
+
+// =====================
+//  Terminal operations
+// =====================
+
+let validLoads = ['orset', 'counter']
+
+/**
+ * Parses the input from the terminal
+ * Always returns a string as output 
+ * @param {String} input -- Input from the terminal 
+ */
+function parseCMDinput(input) {
+    let words = input.split(" "); 
+    let keyword = words[0]
+    switch (keyword) {
+        case "help":
+            return "this should return a list of available functions!"; 
+
+        case "load": 
+            let loading = words[1]; 
+            if(typeof loading == 'undefined' || loading == " "){
+                return "Error: load requires an argument"
+            }
+            if(validLoads.includes(loading)) {
+                return "Loading " + loading; 
+            } else return "No such plugin: " + loading; 
+            
+        default:
+            return `${input}: command not found`; 
+    }
+}
+
+
 // ================
 //  Main operation 
 // ================
@@ -915,6 +949,12 @@ io.on('connection', (socket) => {
             let lst = returnList(nodeName);
             ret(lst);
         } else ret();
+    })
+
+    // Terminal input
+    socket.on("term", (input, ret) => {
+        let val = parseCMDinput(input) 
+        ret(val); 
     })
 })
 

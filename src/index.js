@@ -7,6 +7,10 @@ const fs = require('fs')
 const path = require('path')
 const { Docker } = require('node-docker-api');
 
+// Applications
+const plugins = require('./plugins').plugins
+const validLoads = Object.keys(plugins)
+
 // TODO 
 // Fix disconnect such that it wont disconnect the private
 // Apply net changes to container!
@@ -19,6 +23,7 @@ const IMAGE = 'luat'
 const nodeKeys = [];
 const netNodeKeys = [];
 const networkKeys = [];
+
 // Keys of the links that do not create a network (= are connected to a network node)
 const nonNetworkLinksKeys = [];
 const nonNetworkLinks = {};
@@ -29,10 +34,16 @@ const nonNetworkLinks = {};
 const networkConnections = {};
 const networkContainerCache = {};
 
+// Nodes that have not yet started running an application
+const unloadedNodes = [];
+
 // Docker setup
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
 const diagramPath = __dirname + '/public/data/diagram.json';
+
+// Indicates whether an application is loaded 
+let appStarted = false;
 
 /**
  * Initialize the network to connect containers to
@@ -125,14 +136,12 @@ async function createNode(key) {
     let containerName = 'node' + key;
     let container;
 
-    //let privateNetName = await createPrivateNetwork(containerName);
-    //let privateNet = docker.network.get(privateNetName);
-
     try {
         container = await (docker.container.get(containerName)).status();
     } catch (error) { }
 
-    if (typeof container != 'undefined') {        
+    if (typeof container != 'undefined') {
+        console.log('Container with the same name found; Removing dupe');
         await container.stop();
         await container.delete();
         console.log("Removed dupe!");
@@ -162,6 +171,7 @@ async function createNode(key) {
         // Start the container
         await container.start();
 
+        /*
         let p = APPLICATIONPORT.toString();
 
         // Start LuAT
@@ -173,12 +183,17 @@ async function createNode(key) {
 
         let output = await luat.start({ Detach: false });
         promisifyStream(output);
+        */
+
+        if (appStarted) {
+            console.log('TODO autoload app for new containers');
+        } else {
+            unloadedNodes.push(key);
+        }
 
         // Connect
-        await sleep(2000);
         let status = await container.status();
         let networkSettings = status.data.NetworkSettings.Networks["noCommsNet"]
-        //let networkSettings = status.data.NetworkSettings
         let cfg = status.data.Config;
 
         let ip = networkSettings.IPAddress;
@@ -188,9 +203,10 @@ async function createNode(key) {
         let hostname = cfg.Hostname;
 
         let client = new net.Socket();
-
+        /*
         await connectClient(client, APPLICATIONPORT, ip, containerName);
         APPLICATIONPORT++;
+        */
 
         let internetOpts = {
             "ip": ip,
@@ -203,7 +219,7 @@ async function createNode(key) {
         nodes[containerName] = {
             "client": client,
             "enabled": true,
-            "connected": true,
+            "connected": false,
             "list": [],
             "internet": internetOpts
         }
@@ -220,7 +236,8 @@ function sleep(ms) {
     return new Promise(reslove => setTimeout(reslove, ms));
 }
 
-async function connectClient(client, port, ip, containerName) {
+async function connectClient(port, ip, containerName) {
+    let client = nodes[containerName].client;
     console.log(`Connecting ${containerName} to ${ip}:${port}`);
     await client.connect(port, ip, () => {
         client.write("HELLO\n");
@@ -361,6 +378,47 @@ async function createPrivateNetwork(node) {
     return networkName;
 }
 
+/**
+ * Starts either the application on all the nodes or 
+ * on a specific node that is specified by nodeKey parameter
+ * @param {String} nodeKey (Optional) start application on specific node 
+ */
+async function startApplication(nodeKey) {
+
+    // Todo: generalize
+    let orset = plugins["orset"]
+
+    if (typeof nodeKey == String) {
+        unloadedNodes.push(nodeKey);
+    }
+
+    for (key of unloadedNodes) {
+        let name = "node" + key;
+        let internet = nodes[name].internet;
+        let container = fetchNode(key)
+        let port = APPLICATIONPORT.toString();
+
+        let luat = await container.exec.create({
+            AttachStderr: true,
+            AttachStdout: true,
+            Cmd: ['lua', 'nswitchboard.lua', APP, port]
+        })
+
+        let output = await luat.start({ Detach: false })
+        promisifyStream(output);
+
+        await sleep(2000);
+        await connectClient(internet.port, internet.ip, name);
+
+        // TODO generalize
+        orset.init(name, nodes[name].client);
+        console.log(`Application ${APP} succesfully loaded on ${name}`);
+    }
+
+
+    appStarted = true;
+}
+
 // ================
 //  Set operations
 // ================
@@ -377,6 +435,19 @@ function pushItem(node, items) {
 }
 
 function addItem(item, key) {
+    plugins.orset.addItem(item, key)
+}
+
+function removeItem(item, key) {
+    plugins.orset.removeItem(item, key);
+}
+
+function returnList(name) {
+    return plugins.orset.returnList(name);
+}
+
+function addItem1(item, key) {
+    /*
     let name = "node" + key;
     let node = nodes[name];
     let client = node.client;
@@ -385,9 +456,11 @@ function addItem(item, key) {
     lst.push(item);
     nodes[name].list = lst;
     doRPCCommand(client, 'add', [item]);
+    */
 }
 
-function removeItem(item, key) {
+function removeItem1(item, key) {
+    /*
     let name = "node" + key;
     let node = nodes[name];
     let client = node.client;
@@ -395,9 +468,10 @@ function removeItem(item, key) {
     const idx = list.indexOf(item);
     node.list = list.splice(idx, 1);
     doRPCCommand(client, 'remove', [item]);
+    */
 }
 
-function returnList(nodeName) {
+function returnList1(nodeName) {
     let node = nodes[nodeName]
     return node.list;
 }
@@ -759,32 +833,63 @@ function writeToFile(json) {
 //  Terminal operations
 // =====================
 
-let validLoads = ['orset', 'counter']
-
 /**
  * Parses the input from the terminal
  * Always returns a string as output 
  * @param {String} input -- Input from the terminal 
  */
-function parseCMDinput(input) {
-    let words = input.split(" "); 
+function parseCMDinput(input, key) {
+    let words = input.split(" ");
     let keyword = words[0]
     switch (keyword) {
         case "help":
-            return "this should return a list of available functions!"; 
+            return "this should return a list of available functions!";
 
-        case "load": 
-            let loading = words[1]; 
-            if(typeof loading == 'undefined' || loading == " "){
+        case "load":
+            if (appStarted) {
+                return "Error: another application is still running"
+            }
+            let app = words[1];
+            if (typeof app == 'undefined' || app == " ") {
                 return "Error: load requires an argument"
             }
-            if(validLoads.includes(loading)) {
-                return "Loading " + loading; 
-            } else return "No such plugin: " + loading; 
-            
+            if (validLoads.includes(app)) {
+                return loadApp(app, key);
+            } else return "No such application: " + app;
+
         default:
-            return `${input}: command not found`; 
+            if (validLoads.includes(keyword)) {
+                let app = plugins[keyword];
+                let fun = app[words[1]]
+                let args = words.splice(2);
+
+                // Add key to arg list as last argument
+                if(key == "None") {
+                    return "Error: You must select a node"
+                } else args.push(key);
+
+                if (typeof fun != 'function') {
+                    return `${words[1]} is not a function`
+                } else {
+                    try {
+                        return fun(args);
+                    } catch (error) {
+                        console.log(error); 
+                        return "Something went wrong!"
+                    }
+                }
+            } else {
+                return `${keyword}: command not found`;
+            }
     }
+}
+
+
+function loadApp(app, key) {
+    APP = 'test_orset_rpc.lua';
+
+    startApplication(key);
+    return `Started ${APP}`
 }
 
 
@@ -952,9 +1057,19 @@ io.on('connection', (socket) => {
     })
 
     // Terminal input
-    socket.on("term", (input, ret) => {
-        let val = parseCMDinput(input) 
-        ret(val); 
+    socket.on("term", (input, key, ret) => {
+        let val = parseCMDinput(input, key)
+        ret(val);
+    })
+
+    socket.on("possible", (ret) => {
+        ret(validLoads);
+    })
+
+    socket.on("functions", (inp, ret) => {
+        if (validLoads.includes(inp)) {
+            ret(Object.keys(plugins[inp]));
+        } else ret([]);
     })
 })
 

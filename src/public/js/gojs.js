@@ -297,9 +297,9 @@ window.onclick = (e) => {
 }
 
 
-let infoColor = '#24af29';
-let warningColor = '#ff801f';
-let errorColor = '#b61010';
+let infoColor = '#24af29';      // Green
+let warningColor = '#ff801f';   // Orange
+let errorColor = '#b61010';     // Red
 /**
  * Severity = 0: info
  * Severity = 1: warning

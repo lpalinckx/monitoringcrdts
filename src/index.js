@@ -9,15 +9,13 @@ const { Docker } = require('node-docker-api');
 
 // Applications
 const plugins = require('./plugins').plugins
-const validLoads = Object.keys(plugins)
+const validLoads = Object.keys(plugins).filter(e => e != "general")
 
 // TODO 
-// Fix disconnect such that it wont disconnect the private
 // Apply net changes to container!
-// Remove private net on node deletion
 
 // Docker image to use
-const IMAGE = 'luat'
+const IMAGE = plugins.general["docker-image"];
 
 // Keep track of the keys of all the nodes and links in the diagram
 const nodeKeys = [];
@@ -44,6 +42,8 @@ const diagramPath = __dirname + '/public/data/diagram.json';
 
 // Indicates whether an application is loaded 
 let appStarted = false;
+let APP = 'test_orset_rpc.lua'
+let APPLICATIONPORT = 5678;
 
 /**
  * Initialize the network to connect containers to
@@ -71,7 +71,6 @@ let icc = init();
  * "client"   : socket
  * "enabled"  : if the container is running 
  * "connected": is the container connected
- * "list"     : list of items in the set
  * "internet" : {
  *      "ip",
  *      "port",
@@ -86,11 +85,6 @@ const nodes = {}
  * "connected" : if the network is online
  */
 const networks = {}
-
-let APPLICATIONPORT = 5678;
-let APP = 'test_orset_rpc.lua'
-//let APP = 'test_pingpong.lua'
-
 
 // =================
 //  LuAT connection
@@ -171,26 +165,6 @@ async function createNode(key) {
         // Start the container
         await container.start();
 
-        /*
-        let p = APPLICATIONPORT.toString();
-
-        // Start LuAT
-        let luat = await container.exec.create({
-            AttachStdout: true,
-            AttachStderr: true,
-            Cmd: ['lua', 'nswitchboard.lua', APP, p]
-        })
-
-        let output = await luat.start({ Detach: false });
-        promisifyStream(output);
-        */
-
-        if (appStarted) {
-            console.log('TODO autoload app for new containers');
-        } else {
-            unloadedNodes.push(key);
-        }
-
         // Connect
         let status = await container.status();
         let networkSettings = status.data.NetworkSettings.Networks["noCommsNet"]
@@ -203,10 +177,8 @@ async function createNode(key) {
         let hostname = cfg.Hostname;
 
         let client = new net.Socket();
-        /*
-        await connectClient(client, APPLICATIONPORT, ip, containerName);
+
         APPLICATIONPORT++;
-        */
 
         let internetOpts = {
             "ip": ip,
@@ -219,9 +191,16 @@ async function createNode(key) {
         nodes[containerName] = {
             "client": client,
             "enabled": true,
-            "connected": false,
-            "list": [],
+            "connected": true,
             "internet": internetOpts
+        }
+
+        if (appStarted) {
+            console.log('app started, loading app');
+            startApplication(key)
+        } else {
+            console.log('app not started, pushing key');
+            unloadedNodes.push(key);
         }
 
         console.log('New container created: ' + containerName);
@@ -236,7 +215,8 @@ function sleep(ms) {
     return new Promise(reslove => setTimeout(reslove, ms));
 }
 
-async function connectClient(port, ip, containerName) {
+async function connectClient(port, ip, key) {
+    let containerName = "node" + key;
     let client = nodes[containerName].client;
     console.log(`Connecting ${containerName} to ${ip}:${port}`);
     await client.connect(port, ip, () => {
@@ -249,7 +229,8 @@ async function connectClient(port, ip, containerName) {
     client.on('data', data => {
         console.log(`${containerName} received: ${data}`)
         let list = JSON.parse(data);
-        pushItem(containerName, list);
+        let app = plugins[appStarted];
+        app.update(containerName, list);
     })
 
     client.on('close', () => {
@@ -271,6 +252,17 @@ async function createNetwork(key, linkedContainers, isNode) {
     (isNode) ? netNodeKeys.push(key) : networkKeys.push(key);
     let name = (isNode) ? 'networkNode' : 'network';
     let containerName = name + key;
+
+    // Check for dupe
+    let exists;
+    try {
+        exists = await docker.network.get(containerName).status();
+    } catch (error) { }
+
+    if (typeof exists != 'undefined') {
+        await exists.remove();
+    }
+
     // Create new network
     const net = await (docker.network.create({
         name: containerName,
@@ -286,7 +278,7 @@ async function createNetwork(key, linkedContainers, isNode) {
     for (let container of linkedContainers) {
         try {
             await net.connect({ Container: container.id })
-            /*
+            /* TODO RESTART APPLICATION
             // restart luat 
             let c = docker.container.get(container.id); 
             let cname = (await c.status()).data.Name.substr(1)
@@ -363,40 +355,24 @@ async function createNetworkNode(nodes) {
 }
 
 /**
- * Creates a network for a single container
- * Needed for the creation of containers, otherwise they would connect to a default bridge network
- * Which would allow communication between containers that are not connected by a link 
- * @param {String} node - Name of the container
- */
-async function createPrivateNetwork(node) {
-    let networkName = "private" + node;
-    await (docker.network.create({
-        name: networkName,
-        Driver: "bridge"
-    }))
-
-    return networkName;
-}
-
-/**
  * Starts either the application on all the nodes or 
  * on a specific node that is specified by nodeKey parameter
  * @param {String} nodeKey (Optional) start application on specific node 
  */
 async function startApplication(nodeKey) {
 
-    // Todo: generalize
-    let orset = plugins["orset"]
-
-    if (typeof nodeKey == String) {
+    if (typeof nodeKey == 'number') {
+        console.log("Single key, pushing");
         unloadedNodes.push(nodeKey);
+    } else {
+        console.log(typeof nodeKey);
     }
 
     for (key of unloadedNodes) {
         let name = "node" + key;
         let internet = nodes[name].internet;
         let container = fetchNode(key)
-        let port = APPLICATIONPORT.toString();
+        let port = internet.port.toString();
 
         let luat = await container.exec.create({
             AttachStderr: true,
@@ -408,72 +384,19 @@ async function startApplication(nodeKey) {
         promisifyStream(output);
 
         await sleep(2000);
-        await connectClient(internet.port, internet.ip, name);
+        await connectClient(internet.port, internet.ip, key);
 
-        // TODO generalize
-        orset.init(name, nodes[name].client);
+        let app = plugins[appStarted]
+        if (typeof app["init"] != 'undefined') {
+            let initialise = app["init"];
+            initialise(name, nodes[name].client)
+        }
+
+        let idx = unloadedNodes.indexOf(key); 
+        unloadedNodes.splice(idx, 1); 
+
         console.log(`Application ${APP} succesfully loaded on ${name}`);
     }
-
-
-    appStarted = true;
-}
-
-// ================
-//  Set operations
-// ================
-
-/**
- * Pushes item(s) to the list of the node 
- */
-function pushItem(node, items) {
-    let empty = [];
-    for (item of items) {
-        empty.push(item)
-    }
-    nodes[node].list = empty;
-}
-
-function addItem(item, key) {
-    plugins.orset.addItem(item, key)
-}
-
-function removeItem(item, key) {
-    plugins.orset.removeItem(item, key);
-}
-
-function returnList(name) {
-    return plugins.orset.returnList(name);
-}
-
-function addItem1(item, key) {
-    /*
-    let name = "node" + key;
-    let node = nodes[name];
-    let client = node.client;
-    let lst = node.list;
-    console.log(typeof lst);
-    lst.push(item);
-    nodes[name].list = lst;
-    doRPCCommand(client, 'add', [item]);
-    */
-}
-
-function removeItem1(item, key) {
-    /*
-    let name = "node" + key;
-    let node = nodes[name];
-    let client = node.client;
-    let list = node.list;
-    const idx = list.indexOf(item);
-    node.list = list.splice(idx, 1);
-    doRPCCommand(client, 'remove', [item]);
-    */
-}
-
-function returnList1(nodeName) {
-    let node = nodes[nodeName]
-    return node.list;
 }
 
 // =====================
@@ -863,8 +786,8 @@ function parseCMDinput(input, key) {
                 let fun = app[words[1]]
                 let args = words.splice(2);
 
-                // Add key to arg list as last argument
-                if(key == "None") {
+                // Add node key to arg list as last argument
+                if (key == "None") {
                     return "Error: You must select a node"
                 } else args.push(key);
 
@@ -874,7 +797,7 @@ function parseCMDinput(input, key) {
                     try {
                         return fun(args);
                     } catch (error) {
-                        console.log(error); 
+                        console.log(error);
                         return "Something went wrong!"
                     }
                 }
@@ -886,10 +809,15 @@ function parseCMDinput(input, key) {
 
 
 function loadApp(app, key) {
-    APP = 'test_orset_rpc.lua';
+    appStarted = app;
+    APP = plugins[app].file;
 
     startApplication(key);
     return `Started ${APP}`
+}
+
+function unloadApp() {
+    appStarted = false;
 }
 
 
@@ -1018,7 +946,6 @@ io.on('connection', (socket) => {
     socket.on("disconnectNet", (key, isNode) => disconnectNetwork(key, isNode));
     socket.on("reconnectNet", (key, isNode) => reconnectNetwork(key, isNode));
 
-    socket.on("reqApp", (ret) => ret(APP));
     socket.on("reqNode", (name, isNetwork, ret) => {
         let key = parseInt(name.substring(name.indexOf("-")));
         if (isNetwork && isNetworkNode(key)) {
@@ -1068,7 +995,7 @@ io.on('connection', (socket) => {
 
     socket.on("functions", (inp, ret) => {
         if (validLoads.includes(inp)) {
-            ret(Object.keys(plugins[inp]));
+            ret(Object.keys(plugins[inp]).filter(e => e != "file"));
         } else ret([]);
     })
 })

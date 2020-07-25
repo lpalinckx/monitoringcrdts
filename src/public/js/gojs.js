@@ -340,7 +340,6 @@ function nodeClicked(e, obj) {
     let node = obj.part;
     let name1 = document.getElementById("nodeName1");
     let name2 = document.getElementById("nodeName2");
-    let app = document.getElementById("runningApp");
     let title = document.getElementById("settingsTitle");
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
@@ -351,9 +350,6 @@ function nodeClicked(e, obj) {
     let gateway = document.getElementById("gateway");
     let hostname = document.getElementById("hostname");
 
-    socket.emit("reqApp", (res) => {
-        app.innerText = res;
-    })
     let data = node.data;
     let networkNode = (data.figure == "Border")
     let name = (networkNode ? "networkNode" : "node") + node.key

@@ -628,6 +628,8 @@ async function changeInternetOpts(key, options) {
     let networkSettings = status.NetworkSettings;
     let cfg = status.Config;
 
+    await node.stop(); 
+
     let opts = Object.keys(options);
 
     // Change the options in the container
@@ -637,12 +639,15 @@ async function changeInternetOpts(key, options) {
             console.log(`Changing ${option} to ${val}`);
             // Change option in the object 
             nodes[name].internet[option] = val;
+
+            // Change option in the container
             if (!(typeof val == 'undefined')) {
                 switch (option) {
                     case "ip":
                         networkSettings.IPAddress = val;
                         break;
                     case "port":
+                        // todo update port
                         console.log(val);
                         break;
                     case "dns":
@@ -664,6 +669,7 @@ async function changeInternetOpts(key, options) {
         console.log(error);
         return false;
     }
+    await node.start(); 
     return true;
 }
 

@@ -23,7 +23,7 @@ node src/index.js
 This tool has not one single usage. 
 It is possible to add plugins to the tool.
 This is done by changing the ``` src/plugins.js ``` file. 
-The ````plugins``` object defines all the possible applications and its funtions that are available to use in the tool.
+The ```plugins``` object defines all the possible applications and its funtions that are available to use in the tool.
 
 Here you can define new plugins and functions as you wish.
 Keep in mind, the docker image used is stated in the ```IMAGE``` variable. 

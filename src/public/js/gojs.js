@@ -373,7 +373,6 @@ function nodeClicked(e, obj) {
             dns.value = internet.dns;
             gateway.value = internet.gateway;
             hostname.value = internet.hostname;
-            fetchList(name);
         }
     })
 }
@@ -404,7 +403,6 @@ function clearClicked() {
     let name2 = document.getElementById("nodeName2");
     let enable = document.getElementById("cEnabled");
     let connect = document.getElementById("cConnected");
-    let app = document.getElementById("runningApp");
 
     let ip = document.getElementById("ip");
     let port = document.getElementById("port");
@@ -413,10 +411,9 @@ function clearClicked() {
     let hostname = document.getElementById("hostname");
 
     let val = "None";
-    name1.innerText = name2.innerText = app.innerText = val;
+    name1.innerText = name2.innerText = val;
     enable.checked = connect.checked = true;
     ip.value = port.value = dns.value = gateway.value = hostname.value = "";
-    clearItems(false);
 }
 
 function getKey() {
@@ -433,108 +430,6 @@ function isNetwork() {
 function isNetNode() {
     let name = document.getElementById("nodeName2").innerText;
     return (name.substring(0, 11) == 'networkNode');
-}
-
-// ------------------------------------
-//  Functions for the set manipulation
-// ------------------------------------
-
-let itemInput = document.getElementById("newItem");
-let items = document.getElementById("items");
-let addButton = document.getElementById("addButton");
-
-function isNodeSelected() {
-    if (getKey() == "None") {
-        return false;
-    } else return true;
-}
-
-function createItem(input) {
-    let li = document.createElement("li");
-    let label = document.createElement("label");
-    let remove = document.createElement("button");
-
-    label.innerText = input;
-
-    remove.innerText = "Remove";
-    remove.className = "removeItem";
-
-    li.appendChild(label)
-    li.appendChild(remove)
-    return li;
-}
-
-function addItem(item) {
-    if (isNodeSelected()) {
-        let val = (typeof item == 'undefined') ? itemInput.value : item;
-        if (val == "") {
-            showInfo("Item name can't be empty", 2)
-        } else if (isDupe(val)) {
-            showInfo("Set can't contain duplicates", 2);
-        } else {
-            let li = createItem(val);
-
-            items.appendChild(li);
-            bindButtons(li);
-
-            // Transmit with socket
-            let nodeKey = getKey();
-            if (typeof item == 'undefined') {
-                socket.emit("addItem", val, nodeKey);
-            }
-        }
-    } else showInfo("Select a node first", 2);
-}
-
-function isDupe(item) {
-    let lis = document.getElementById("items").childNodes;
-    let items = [];
-    lis.forEach(li => items.push(li.childNodes[0].innerText));
-    //console.log(items.includes(item));
-    return items.includes(item);
-}
-
-function deleteItem() {
-    let li = this.parentNode;
-    let ul = li.parentNode;
-    let val = li.childNodes[0].innerText;
-    let nodeKey = getKey();
-    ul.removeChild(li);
-    socket.emit("removeItem", val, nodeKey)
-}
-
-function bindButtons(li) {
-    let removeButton = li.querySelector("button.removeItem");
-    removeButton.onclick = deleteItem;
-}
-
-function fetchList(nodeName) {
-    clearItems(false);
-    if (nodeName != "None") {
-        socket.emit("reqList", nodeName, (res) => {
-            if (res != null) {
-                //console.log(`Response: ${res}`);
-                for (item of res) {
-                    if (!isDupe(item)) {
-                        addItem(item);
-                    }
-                }
-            }
-        })
-    }
-}
-
-function clearItems(emptySet) {
-    let ul = document.getElementById("items");
-    let key = getKey();
-    while (ul.hasChildNodes()) {
-        let li = ul.firstChild;
-        if (emptySet) {
-            let val = li.childNodes[0].innerText;
-            socket.emit("removeItem", val, key);
-        }
-        ul.removeChild(li);
-    }
 }
 
 function internetOptions() {
@@ -576,9 +471,6 @@ function checkEnabled() {
         myDiagram.model.setDataProperty(data, "fill", color);
         myDiagram.commitTransaction();
         socket.emit("toggleContainer", key, msg);
-        if (checkbox.checked) {
-            fetchList("node" + key);
-        }
     }
 }
 

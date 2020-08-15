@@ -146,7 +146,7 @@ function removeItem(params) {
 function returnList(params) {
     let name = "node"+params[0];
     let list = cache[name].list;
-    let str = `Items in set: `
+    let str = `Items in set of ${name}: `
     for(i of list) {
         str += `${i}, `; 
     }

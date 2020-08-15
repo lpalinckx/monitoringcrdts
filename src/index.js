@@ -278,21 +278,6 @@ async function createNetwork(key, linkedContainers, isNode) {
     for (let container of linkedContainers) {
         try {
             await net.connect({ Container: container.id })
-            /* TODO RESTART APPLICATION
-            // restart luat 
-            let c = docker.container.get(container.id); 
-            let cname = (await c.status()).data.Name.substr(1)
-            let p = nodes[cname].internet.port.toString(); 
-            c.exec
-            let luat = await c.exec.create({
-                AttachStdout: true,
-                AttachStderr: true,
-                Cmd: ['lua', 'nswitchboard.lua', APP, p]
-            })
- 
-            let output = await luat.start({ Detach: false });
-            promisifyStream(output);
-            */
             console.log(`Connected a container to ${containerName}`);
         } catch (error) {
             console.log(error)
@@ -360,12 +345,11 @@ async function createNetworkNode(nodes) {
  * @param {String} nodeKey (Optional) start application on specific node 
  */
 async function startApplication(nodeKey) {
+    let typ = typeof nodeKey; 
 
-    if (typeof nodeKey == 'number') {
+    if (typ == 'string' || typ == 'number' ) {
         console.log("Single key, pushing");
         unloadedNodes.push(nodeKey);
-    } else {
-        console.log(typeof nodeKey);
     }
 
     for (key of unloadedNodes) {
@@ -392,11 +376,9 @@ async function startApplication(nodeKey) {
             initialise(name, nodes[name].client)
         }
 
-        let idx = unloadedNodes.indexOf(key); 
-        unloadedNodes.splice(idx, 1); 
-
         console.log(`Application ${APP} succesfully loaded on ${name}`);
     }
+    unloadedNodes.splice(0, unloadedNodes.length);
 }
 
 // =====================
@@ -420,6 +402,11 @@ async function deleteNode(key) {
     let idx = nodeKeys.indexOf(key);
     if (idx > -1) {
         nodeKeys.splice(idx, 1);
+    }
+
+    let unl = unloadedNodes.includes(key); 
+    if(unl > -1) {
+        unloadedNodes.splice(unl, 1); 
     }
 }
 
@@ -783,7 +770,7 @@ function parseCMDinput(input, key) {
                 return "Error: load requires an argument"
             }
             if (validLoads.includes(app)) {
-                return loadApp(app, key);
+                return loadApp(app);
             } else return "No such application: " + app;
 
         default:
@@ -814,11 +801,11 @@ function parseCMDinput(input, key) {
 }
 
 
-function loadApp(app, key) {
+function loadApp(app) {
     appStarted = app;
     APP = plugins[app].file;
 
-    startApplication(key);
+    startApplication();
     return `Started ${APP}`
 }
 

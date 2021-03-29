@@ -460,6 +460,12 @@ function internetOptions() {
 // --------------------------
 //  Functions for checkboxes
 // --------------------------
+function isNodeSelected() {
+    if (getKey() == "None") {
+        return false;
+    } else return true;
+}
+
 function checkEnabled() {
     if (isNodeSelected()) {
         let checkbox = document.getElementById("cEnabled");

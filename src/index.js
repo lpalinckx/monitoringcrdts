@@ -219,6 +219,8 @@ async function connectClient(port, ip, key) {
     let containerName = "node" + key;
     let client = nodes[containerName].client;
     console.log(`Connecting ${containerName} to ${ip}:${port}`);
+
+
     await client.connect(port, ip, () => {
         client.write("HELLO\n");
         client.write("RPC\n");
